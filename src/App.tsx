@@ -74,7 +74,7 @@ export default function App() {
     setChatHistory(newChatHistory);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: AIzaSyDyR5HvQhdeYQXjZFy0TjuBZrMlgVsBkpM });
+      const ai = new GoogleGenAI({ apiKey: "AIzaSyDyR5HvQhdeYQXjZFy0TjuBZrMlgVsBkpM" });
       
       const prompt = `
         Subject: ${book}
