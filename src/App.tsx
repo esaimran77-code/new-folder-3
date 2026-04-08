@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, memo } from 'react';
-import { GoogleGenAI } from "@google/genai";
+import Groq from "groq-sdk";
 import { BookOpen, MessageSquareText, Loader2, ChevronLeft, Folder, AlignLeft, AlignJustify, BookText, Send, Sparkles, User, Moon, Sun } from 'lucide-react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -103,8 +103,10 @@ export default function App() {
     });
 
     try {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-      const ai = new GoogleGenAI({ apiKey });
+      const ai = new Groq({ 
+  apiKey: import.meta.env.VITE_GROQ_API_KEY,
+  dangerouslyAllowBrowser: true 
+});
       
       let formatInstructions = "";
       if (answerLength === 'short') {
@@ -155,7 +157,7 @@ export default function App() {
       `;
       
       const responseStream = await ai.models.generateContentStream({
-        model: "gemini-2.0-flash",
+        model: "llama-3.3-70b-versatile",
         contents: prompt,
       });
       
