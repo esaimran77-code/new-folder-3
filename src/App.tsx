@@ -420,14 +420,12 @@ export default function App() {
 const Background3D = memo(function Background3D({ isDarkMode }: { isDarkMode: boolean }) {
   return (
     <div className={`fixed inset-0 z-0 pointer-events-none transition-colors duration-500 ${isDarkMode ? 'bg-slate-900' : 'bg-slate-100'}`}>
-      <Canvas camera={{ position: [0, 0, 10], fov: 50 }}>
-        <ambientLight intensity={isDarkMode ? 0.5 : 0.8} />
-        <directionalLight position={[10, 10, 5]} intensity={isDarkMode ? 1 : 1.5} />
-        <FloatingShape position={[-4, 2, -2]} color={isDarkMode ? "#818cf8" : "#6366f1"} speed={0.2} scale={1.5} />
-        <FloatingShape position={[5, -2, -5]} color={isDarkMode ? "#c084fc" : "#a855f7"} speed={0.15} scale={2} />
-        <FloatingShape position={[0, 0, -8]} color={isDarkMode ? "#60a5fa" : "#3b82f6"} speed={0.1} scale={3} />
-        <FloatingShape position={[-5, -4, -4]} color={isDarkMode ? "#f472b6" : "#ec4899"} speed={0.25} scale={1.2} />
-        <FloatingShape position={[6, 4, -3]} color={isDarkMode ? "#2dd4bf" : "#14b8a6"} speed={0.18} scale={1.8} />
+      <Canvas camera={{ position: [0, 0, 10], fov: 5 }}>
+        <ambientLight intensity={isDarkMode ? 0.3 : 0.5} />
+        <directionalLight position={[2, 2, 1]} color={isDarkMode ? '#818cf8' : '#6366f1'} />
+        <FloatingShape position={[2, 1, -2]} color={isDarkMode ? '#818cf8' : '#6366f1'} speed={0.5} scale={1.5} />
+        <FloatingShape position={[-5, -4, -4]} color={isDarkMode ? '#f472b6' : '#ec4899'} speed={0.25} scale={1.2} />
+        <FloatingShape position={[6, -4, -3]} color={isDarkMode ? '#2dd4bf' : '#14b8a6'} speed={0.18} scale={1.8} />
       </Canvas>
     </div>
   );
