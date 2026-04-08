@@ -156,20 +156,28 @@ export default function App() {
         Format as plain paragraphs under each label, no bullet points. Keep your tone very friendly and teacher-like.
       `;
       
-      const responseStream = await ai.models.generateContentStream({
-        model: "llama-3.3-70b-versatile",
-        contents: prompt,
-      });
-      
-      let fullText = '';
-      for await (const chunk of responseStream) {
-        fullText += chunk.text;
-        setChatHistory(prev => {
-          const newHistory = [...prev];
-          newHistory[newHistory.length - 1] = { ...newHistory[newHistory.length - 1], content: fullText };
-          return newHistory;
-        });
-      }
+      const response = await ai.chat.completions.create({
+  model: "llama-3.3-70b-versatile",
+  messages: [{ role: "user", content: prompt }],
+  stream: true,
+  max_tokens: 1024,
+});
+
+let fullText = '';
+for await (const chunk of response) {
+  const text = chunk.choices[0]?.delta?.content || '';
+  if (text) {
+    fullText += text;
+    setChatHistory(prev => {
+      const newHistory = [...prev];
+      newHistory[newHistory.length - 1] = {
+        ...newHistory[newHistory.length - 1],
+        content: fullText
+      };
+      return newHistory;
+    });
+  }
+}
     } catch (error: any) {
       console.error("Detailed API Error:", error);
       
