@@ -103,7 +103,7 @@ export default function App() {
     });
 
     try {
-      const apiKey = process.env.GEMINI_API_KEY || "AIzaSyDyR5HvQhdeYQXjZFy0TjuBZrMlgVsBkpM";
+      const apiKey = process.env.GEMINI_API_KEY || "AIzaSyB4ttfwCn-dMVPa1lmjwGYa86TBTzuZIm8";
       const ai = new GoogleGenAI({ apiKey });
       
       let formatInstructions = "";
