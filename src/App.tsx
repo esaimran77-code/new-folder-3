@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { motion, AnimatePresence } from 'motion/react';
 
 const BOOKS = [
-  "Tarjama-Tul-Quran",m
+  "Tarjama-Tul-Quran",
   "Islamiat/Pak Studies",
   "Applied Mathematics-II",
   "Business Communication",
