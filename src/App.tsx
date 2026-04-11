@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, memo } from 'react';
 import Groq from "groq-sdk";
-import { BookOpen, MessageSquareText, Loader2, ChevronLeft, Folder, AlignLeft, AlignJustify, BookText, Send, Sparkles, User, Moon, Sun } from 'lucide-react';
+import { BookOpen, MessageSquareText, Loader2, ChevronLeft, Folder, AlignLeft, AlignJustify, BookText, Send, Sparkles, User, Moon, Sun, ChevronDown } from 'lucide-react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { motion, AnimatePresence } from 'motion/react';
@@ -71,11 +71,26 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [replyingTo, setReplyingTo] = useState<number | null>(null);
   const [chatHeading, setChatHeading] = useState('');
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
   const messageRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setChatHeading(DYNAMIC_HEADINGS[Math.floor(Math.random() * DYNAMIC_HEADINGS.length)]);
   }, [screen]);
+
+  const scrollToBottom = () => {
+    chatContainerRef.current?.scrollTo({
+      top: chatContainerRef.current.scrollHeight,
+      behavior: 'smooth'
+    });
+  };
+
+  const handleScroll = () => {
+    if (!chatContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+    setShowScrollBtn(scrollHeight - scrollTop - clientHeight > 100);
+  };
 
   const handleSubmit = async (text?: string) => {
     const userQuestion = text || question;
@@ -94,90 +109,85 @@ export default function App() {
     setChatHistory(prev => {
       const newHistory = [...prev, userMsg, aiMsg];
       setTimeout(() => {
-        const aiIndex = newHistory.length - 1;
-        if (messageRefs.current[aiIndex]) {
-          messageRefs.current[aiIndex]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
+        scrollToBottom();
       }, 100);
       return newHistory;
     });
 
     try {
       const ai = new Groq({ 
-  apiKey: import.meta.env.VITE_GROQ_API_KEY,
-  dangerouslyAllowBrowser: true 
-});
+        apiKey: import.meta.env.VITE_GROQ_API_KEY,
+        dangerouslyAllowBrowser: true 
+      });
       
       let formatInstructions = "";
       if (answerLength === 'short') {
         formatInstructions = `
-        - Start with a warm greeting (1 line)
-        - 🌸 Urdu Explanation: Exactly 5 lines
+        - Start with "وعلیکم السلام" only, then immediately begin the answer
+        - 🌸 اردو وضاحت: بالکل 5 لائنیں (صرف اردو رسم الخط میں)
         - 📖 English Definition: Exactly 3 lines (simple words)
         - 💡 Example: Exactly 2 lines
-        - 🔤 Roman Urdu: Translation of the above
+        - 🔤 Roman Urdu: Roman Urdu translation of the above sections
         `;
       } else if (answerLength === 'long') {
         formatInstructions = `
-        - Start with a warm greeting (1 line)
-        - 🌸 Urdu Explanation: Exactly 10 lines
-        - 📖 English Definition: Exactly 6 lines
+        - Start with "وعلیکم السلام" only, then immediately begin the answer
+        - 🌸 اردو وضاحت: بالکل 10 لائنیں (صرف اردو رسم الخط میں)
+        - 📖 English Definition: Exactly 6 lines (simple words)
         - 💡 Example: Exactly 3 lines
-        - 🔤 Roman Urdu: Translation of the above
+        - 🔤 Roman Urdu: Roman Urdu translation of the above sections
         `;
       } else {
         formatInstructions = `
-        - Start with a warm greeting (1 line)
-        - 🌸 Urdu Explanation: Exactly 19 lines
-        - 📖 English Definition: Exactly 10 lines
+        - Start with "وعلیکم السلام" only, then immediately begin the answer
+        - 🌸 اردو وضاحت: بالکل 19 لائنیں (صرف اردو رسم الخط میں)
+        - 📖 English Definition: Exactly 10 lines (simple words)
         - 💡 Example: Exactly 6 lines
-        - 🔤 Roman Urdu: Translation of the above
+        - 🔤 Roman Urdu: Roman Urdu translation of the above sections
         `;
       }
 
       const prompt = `
-        You are a warm, friendly, and caring teacher. Your goal is to help the student understand the topic thoroughly while being encouraging and supportive.
+        You are Esa AI, a warm and knowledgeable teacher. Answer in the exact format below.
         
         Subject: ${book}
-        Context of the entire conversation:
+        Conversation so far:
         ${historyForPrompt.map(h => `${h.role}: ${h.content}`).join('\n')}
         
-        ${currentReplyContext ? `IMPORTANT CONTEXT FOR THIS QUESTION: The user is specifically replying to the following previous answer:\n"""\n${currentReplyContext}\n"""\n\nPlease address their question in direct relation to this specific answer.` : ''}
+        ${currentReplyContext ? `IMPORTANT: User is replying to this previous answer:\n"""\n${currentReplyContext}\n"""\nAddress their question in relation to this.` : ''}
         
-        Instructions for the answer format:
+        STRICT FORMAT RULES:
         ${formatInstructions}
         
-        IMPORTANT: You MUST use these exact section labels with their emojis:
-        🌸 Urdu Explanation
-        📖 English Definition
-        💡 Example
-        🔤 Roman Urdu
-        
-        Format as plain paragraphs under each label, no bullet points. Keep your tone very friendly and teacher-like.
+        CRITICAL RULES:
+        - The 🌸 Urdu section MUST be written ONLY in Urdu script (اردو) - absolutely NO Roman Urdu or English in this section
+        - Do NOT add any extra greeting or intro lines
+        - Use exactly these emoji labels: 🌸 اردو وضاحت, 📖 English Definition, 💡 Example, 🔤 Roman Urdu
+        - No bullet points, plain paragraphs only
       `;
       
       const response = await ai.chat.completions.create({
-  model: "llama-3.3-70b-versatile",
-  messages: [{ role: "user", content: prompt }],
-  stream: true,
-  max_tokens: 1024,
-});
+        model: "llama-3.3-70b-versatile",
+        messages: [{ role: "user", content: prompt }],
+        stream: true,
+        max_tokens: 1024,
+      });
 
-let fullText = '';
-for await (const chunk of response) {
-  const text = chunk.choices[0]?.delta?.content || '';
-  if (text) {
-    fullText += text;
-    setChatHistory(prev => {
-      const newHistory = [...prev];
-      newHistory[newHistory.length - 1] = {
-        ...newHistory[newHistory.length - 1],
-        content: fullText
-      };
-      return newHistory;
-    });
-  }
-}
+      let fullText = '';
+      for await (const chunk of response) {
+        const text = chunk.choices[0]?.delta?.content || '';
+        if (text) {
+          fullText += text;
+          setChatHistory(prev => {
+            const newHistory = [...prev];
+            newHistory[newHistory.length - 1] = {
+              ...newHistory[newHistory.length - 1],
+              content: fullText
+            };
+            return newHistory;
+          });
+        }
+      }
     } catch (error: any) {
       console.error("Detailed API Error:", error);
       
@@ -376,12 +386,17 @@ for await (const chunk of response) {
               <main className={`flex-1 backdrop-blur-xl rounded-3xl shadow-2xl border flex flex-col overflow-hidden ${
                 isDarkMode ? 'bg-slate-900/50 border-white/20' : 'bg-white/80 border-slate-200'
               }`}>
-                <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 space-y-6 pb-48 sm:pb-56">
+                {/* Chat messages area */}
+                <div 
+                  ref={chatContainerRef}
+                  onScroll={handleScroll}
+                  className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 space-y-6 pb-48 sm:pb-56"
+                >
                   {chatHistory.length === 0 && (
                     <div className="h-full flex flex-col items-center justify-center text-center opacity-60">
                       <MessageSquareText size={64} className="text-indigo-400 mb-4" />
                       <p className={`text-xl font-medium max-w-md ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
-                        I'm your CIT teacher. Ask me anything about {book}!
+                        میں Esa AI ہوں۔ {book} کے بارے میں کچھ بھی پوچھیں!
                       </p>
                     </div>
                   )}
@@ -394,21 +409,14 @@ for await (const chunk of response) {
                       key={index} 
                       className={`flex flex-col max-w-[85%] will-change-transform ${msg.role === 'user' ? 'ml-auto items-end' : 'mr-auto items-start'}`}
                     >
+                      {/* Name label — NO Reply button */}
                       <div className={`flex items-center gap-2 mb-2 px-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                         <div className={`p-1.5 rounded-full ${msg.role === 'user' ? 'bg-indigo-100 text-indigo-600' : 'bg-purple-100 text-purple-600'}`}>
                           {msg.role === 'user' ? <User size={16} /> : <Sparkles size={16} />}
                         </div>
                         <span className={`text-sm font-bold ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
-                          {msg.role === 'user' ? 'You' : 'Teacher AI'}
+                          {msg.role === 'user' ? 'You' : 'Esa AI'}
                         </span>
-                        {msg.role === 'model' && msg.content && (
-                          <button 
-                            onClick={() => setReplyingTo(index)} 
-                            className="text-xs text-indigo-500 hover:text-indigo-700 font-semibold bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-full transition-colors ml-2"
-                          >
-                            Reply
-                          </button>
-                        )}
                       </div>
 
                       <div className={`p-4 sm:p-5 rounded-3xl shadow-md relative group break-words overflow-hidden ${
@@ -427,13 +435,33 @@ for await (const chunk of response) {
                           </div>
                         )}
                         <div className="whitespace-pre-line leading-relaxed text-[15px] sm:text-base">
-                          {msg.content || (loading && msg.role === 'model' ? <span className="flex items-center gap-2 text-slate-400"><Loader2 className="animate-spin" size={16} /> Teacher is typing...</span> : '')}
+                          {msg.content || (loading && msg.role === 'model' ? <span className="flex items-center gap-2 text-slate-400"><Loader2 className="animate-spin" size={16} /> Esa AI likh raha hai...</span> : '')}
                         </div>
                       </div>
                     </motion.div>
                   ))}
                 </div>
 
+                {/* Scroll to bottom button */}
+                <AnimatePresence>
+                  {showScrollBtn && (
+                    <motion.button
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.8 }}
+                      onClick={scrollToBottom}
+                      className={`fixed bottom-28 right-6 z-50 p-3 rounded-full shadow-xl border transition-all ${
+                        isDarkMode 
+                          ? 'bg-indigo-600 text-white border-indigo-500 hover:bg-indigo-700' 
+                          : 'bg-white text-indigo-600 border-slate-200 hover:bg-indigo-50'
+                      }`}
+                    >
+                      <ChevronDown size={22} />
+                    </motion.button>
+                  )}
+                </AnimatePresence>
+
+                {/* Fixed input box */}
                 <div className={`fixed bottom-0 left-0 right-0 z-50 backdrop-blur-xl border-t shadow-[0_-10px_40px_rgba(0,0,0,0.05)] pb-[max(env(safe-area-inset-bottom),16px)] ${
                   isDarkMode ? 'bg-slate-900/90 border-slate-700' : 'bg-white/90 border-slate-200'
                 }`}>
@@ -466,8 +494,8 @@ for await (const chunk of response) {
                             ? 'bg-slate-800 border-slate-700 focus:border-indigo-500 focus:ring-indigo-500/20 text-white placeholder-slate-400' 
                             : 'bg-white border-slate-200 focus:border-indigo-400 focus:ring-indigo-100 text-slate-700 placeholder-slate-400'
                         }`} 
-                        rows={question.split('\n').length > 1 ? 3 : 1} 
-                        placeholder="Ask your question here... (Press Enter to send)" 
+                        rows={2}
+                        placeholder="اپنا سوال یہاں لکھیں... (Enter دبائیں)"
                       />
                       <button 
                         onClick={() => handleSubmit()} 
