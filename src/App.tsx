@@ -9,13 +9,10 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { motion, AnimatePresence } from 'motion/react';
 
-/* ── Google Nastaleeq font injected at runtime ── */
-if (typeof document !== 'undefined') {
-  const fontLink = document.createElement('link');
-  fontLink.rel = 'stylesheet';
-  fontLink.href = 'https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@400;700&display=swap';
-  document.head.appendChild(fontLink);
-}
+const fontLink = document.createElement('link');
+fontLink.rel = 'stylesheet';
+fontLink.href = 'https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@400;700&display=swap';
+document.head.appendChild(fontLink);
 
 const BOOKS = [
   'Tarjama-Tul-Quran',
@@ -38,7 +35,6 @@ const HEADINGS = [
   "Let's dive into some knowledge!",
 ];
 
-/* ── Image resize to max 33 MP ── */
 async function resizeImage(file: File): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -62,71 +58,56 @@ async function resizeImage(file: File): Promise<string> {
   });
 }
 
-/* ── Build AI prompt ── */
 function buildPrompt(
-  book: string, answerLength: string, question: string,
+  book: string,
+  answerLength: string,
+  question: string,
   history: { role: string; content: string }[],
-  replyCtx?: string, hasImage?: boolean
+  replyCtx?: string,
+  hasImage?: boolean
 ): string {
   const hist = history.map(h => h.role + ': ' + h.content).join('\n');
   const replyNote = replyCtx ? 'User is replying to: "' + replyCtx + '"' : '';
-  const imgNote = hasImage ? 'Student shared an image — read and solve everything in it.' : '';
+  const imgNote = hasImage ? 'Student shared an image. Read everything in the image carefully and solve/explain it completely.' : '';
 
-  let fmt: string[];
-  if (answerLength === 'short') {
-    fmt = [
-      'Line 1: وعلیکم السلام',
-      '',
-      'Label: \uD83C\uDF38 اردو وضاحت',
-      'Exactly 5 lines — pure Pakistani Urdu script only, zero English or Roman.',
-      '',
-      'Label: \uD83D\uDCD6 English Definition',
-      'Exactly 3 lines — simple English.',
-      '',
-      'Label: \uD83D\uDCA1 Example',
-      'Exactly 2 lines — clear real example.',
-      '',
-      'Label: \uD83D\uDD24 Roman Urdu',
-      'Translate sections 1+2+3 into Roman Urdu (Pakistani style).',
-    ];
-  } else if (answerLength === 'long') {
-    fmt = [
-      'Line 1: وعلیکم السلام',
-      '',
-      'Label: \uD83C\uDF38 اردو وضاحت',
-      'Exactly 10 lines — pure Pakistani Urdu script only, zero English or Roman.',
-      '',
-      'Label: \uD83D\uDCD6 English Definition',
-      'Exactly 5 lines — simple English.',
-      '',
-      'Label: \uD83D\uDCA1 Example',
-      'Exactly 3 lines — clear real example.',
-      '',
-      'Label: \uD83D\uDD24 Roman Urdu',
-      'Translate sections 1+2+3 into Roman Urdu (Pakistani style).',
-    ];
-  } else {
-    fmt = [
-      'Line 1: وعلیکم السلام',
-      '',
-      'Label: \uD83C\uDF38 اردو وضاحت',
-      'Exactly 19 lines — pure Pakistani Urdu script only, zero English or Roman.',
-      '',
-      'Label: \uD83D\uDCD6 English Definition',
-      'Exactly 10 lines — simple English.',
-      '',
-      'Label: \uD83D\uDCA1 Example',
-      'Exactly 6 lines — detailed real examples.',
-      '',
-      'Label: \uD83D\uDD24 Roman Urdu',
-      'Translate sections 1+2+3 into Roman Urdu (Pakistani style).',
-    ];
+  let urduLines = '5';
+  let engLines = '3';
+  let exLines = '2';
+
+  if (answerLength === 'long') {
+    urduLines = '10'; engLines = '5'; exLines = '3';
+  } else if (answerLength === 'in-depth') {
+    urduLines = '19'; engLines = '10'; exLines = '6';
   }
 
+  const format = [
+    'Line 1: وعلیکم السلام',
+    '',
+    '\uD83C\uDF38 اردو وضاحت',
+    'Write exactly ' + urduLines + ' lines.',
+    'IMPORTANT: Write a SIMPLE, CLEAR EXPLANATION of what this topic IS — like a teacher explaining to a student.',
+    'Do NOT list features, advantages, or benefits.',
+    'Just explain the meaning and concept in easy everyday Pakistani Urdu words.',
+    'Use pure Urdu script only — absolutely NO English words, NO Roman Urdu in this section.',
+    '',
+    '\uD83D\uDCD6 English Definition',
+    'Write exactly ' + engLines + ' lines.',
+    'Give a simple, clear definition and explanation in easy English.',
+    'Do NOT list features or advantages — just explain what it is and how it works.',
+    '',
+    '\uD83D\uDCA1 Example',
+    'Write exactly ' + exLines + ' lines with a clear, real-life practical example.',
+    '',
+    '\uD83D\uDD24 Roman Urdu',
+    'Translate the Urdu Explanation + English Definition + Example into Roman Urdu (Pakistani style).',
+  ].join('\n');
+
   return [
-    'You are Esa AI — an expert, accurate Pakistani teacher for: ' + book,
-    'CRITICAL: Always give correct, factual answers. Never guess.',
-    'Use Pakistani Urdu vocabulary and style (not Indian Urdu).',
+    'You are Esa AI — an expert Pakistani teacher for: ' + book,
+    'You always give CORRECT, ACCURATE, FACTUAL answers.',
+    'Use simple Pakistani Urdu style (NOT Indian Urdu).',
+    'NEVER list advantages or features unless specifically asked.',
+    'ALWAYS explain concepts simply and clearly.',
     '',
     'Conversation history:',
     hist,
@@ -136,21 +117,21 @@ function buildPrompt(
     '',
     'Student question: ' + question,
     '',
-    'STRICT FORMAT:',
-    fmt.join('\n'),
+    'FOLLOW THIS EXACT FORMAT:',
+    format,
     '',
-    'RULES:',
-    '1. Follow format exactly.',
-    '2. Urdu section = pure Urdu script only.',
-    '3. Roman Urdu section = translate all 3 sections.',
-    '4. Plain paragraphs, no bullet points.',
-    '5. No extra text outside format.',
+    'STRICT RULES:',
+    '1. Follow format exactly — no extra sections.',
+    '2. Urdu section = pure Urdu script only, simple Pakistani words.',
+    '3. Explain what it IS, not what its advantages are.',
+    '4. Roman Urdu section must include all 3 sections translated.',
+    '5. No bullet points anywhere — plain flowing paragraphs.',
+    '6. Do not add any text outside the format.',
   ].join('\n');
 }
 
 type ChatMsg = { role: 'user' | 'model'; content: string; replyCtx?: string; imgUrl?: string };
 
-/* ── 3D Background ── */
 const FloatingShape = memo(function FloatingShape({
   position, color, speed, scale = 1,
 }: { position: [number, number, number]; color: string; speed: number; scale?: number }) {
@@ -186,7 +167,6 @@ const Background3D = memo(function Background3D({ dark }: { dark: boolean }) {
   );
 });
 
-/* ══════════════════ MAIN APP ══════════════════ */
 export default function App() {
   const [dark, setDark] = useState(true);
   const [screen, setScreen] = useState<1 | 2 | 3>(1);
@@ -222,12 +202,8 @@ export default function App() {
     const file = e.target.files?.[0];
     if (!file) return;
     setImgLoading(true);
-    try {
-      setSelImg(await resizeImage(file));
-    } finally {
-      setImgLoading(false);
-      if (fileRef.current) fileRef.current.value = '';
-    }
+    try { setSelImg(await resizeImage(file)); }
+    finally { setImgLoading(false); if (fileRef.current) fileRef.current.value = ''; }
   };
 
   const submit = async (txt?: string) => {
@@ -307,7 +283,6 @@ export default function App() {
     exit: { opacity: 0, y: -20, transition: { duration: 0.3 } },
   };
 
-  /* colour helpers */
   const card = dark ? 'bg-white/10 border-white/20' : 'bg-white/80 border-slate-200';
   const txt = dark ? 'text-white' : 'text-slate-800';
   const sub = dark ? 'text-slate-300' : 'text-slate-600';
@@ -319,7 +294,6 @@ export default function App() {
     <div>
       <Background3D dark={dark} />
 
-      {/* Dark/Light toggle */}
       <button
         onClick={() => setDark(!dark)}
         className={'fixed top-5 right-5 z-50 p-3 rounded-full backdrop-blur-md shadow-lg transition-all ' +
@@ -331,7 +305,7 @@ export default function App() {
       <div className="relative z-10" style={{ minHeight: '100dvh' }}>
         <AnimatePresence mode="wait">
 
-          {/* ═══ SCREEN 1 — BOOKS ═══ */}
+          {/* SCREEN 1 — BOOKS */}
           {screen === 1 && (
             <motion.div key="s1" variants={pv} initial="initial" animate="animate" exit="exit"
               className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8">
@@ -349,7 +323,6 @@ export default function App() {
                   Select a subject to begin your learning journey
                 </p>
               </div>
-
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-5 w-full max-w-5xl">
                 {BOOKS.map((b, i) => (
                   <motion.button key={b}
@@ -369,7 +342,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {/* ═══ SCREEN 2 — ANSWER LENGTH ═══ */}
+          {/* SCREEN 2 — ANSWER LENGTH */}
           {screen === 2 && (
             <motion.div key="s2" variants={pv} initial="initial" animate="animate" exit="exit"
               className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8">
@@ -408,12 +381,12 @@ export default function App() {
             </motion.div>
           )}
 
-          {/* ═══ SCREEN 3 — CHAT ═══ */}
+          {/* SCREEN 3 — CHAT */}
           {screen === 3 && (
             <motion.div key="s3" variants={pv} initial="initial" animate="animate" exit="exit"
               className="flex flex-col" style={{ height: '100dvh' }}>
 
-              {/* Header — never shrinks */}
+              {/* Header */}
               <div className="flex-shrink-0 px-3 pt-3 pb-2 sm:px-5 sm:pt-4 max-w-4xl w-full mx-auto">
                 <div className={'rounded-2xl border backdrop-blur-md px-4 py-3 shadow-lg ' + card}>
                   <button onClick={() => setScreen(2)}
@@ -433,7 +406,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Chat area — flex-1, scrollable */}
+              {/* Chat area */}
               <div className="flex-1 min-h-0 px-3 sm:px-5 max-w-4xl w-full mx-auto relative">
                 <div className={'h-full rounded-2xl border backdrop-blur-xl shadow-xl overflow-hidden ' +
                   (dark ? 'bg-slate-900/60 border-white/15' : 'bg-white/85 border-slate-200')}>
@@ -441,9 +414,8 @@ export default function App() {
                     ref={chatRef}
                     onScroll={onScroll}
                     className="h-full overflow-y-auto p-3 sm:p-5 space-y-4"
-                    style={{ WebkitOverflowScrolling: 'touch' }}
+                    style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
                   >
-                    {/* Empty state */}
                     {chat.length === 0 && (
                       <div className="h-full flex flex-col items-center justify-center text-center py-10 opacity-60">
                         <MessageSquareText size={52} className="text-indigo-400 mb-3" />
@@ -454,7 +426,6 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* Messages */}
                     {chat.map((msg, idx) => {
                       const isUser = msg.role === 'user';
                       const bubbleCls = isUser
@@ -462,7 +433,7 @@ export default function App() {
                         : dark
                           ? 'bg-slate-800 border border-slate-700 text-slate-100 rounded-tl-sm'
                           : 'bg-white border border-slate-200 text-slate-800 rounded-tl-sm';
-                      const isUrdu = !isUser && msg.content.includes('\u0627\u0631\u062F\u0648');
+                      const hasUrdu = !isUser && (msg.content.includes('\u0648\u0639\u0644\u06CC\u06A9\u0645') || msg.content.includes('\u0627\u0631\u062F\u0648'));
 
                       return (
                         <motion.div key={idx}
@@ -470,7 +441,6 @@ export default function App() {
                           animate={{ opacity: 1, y: 0, scale: 1 }}
                           className={'flex flex-col max-w-[90%] sm:max-w-[82%] ' + (isUser ? 'ml-auto items-end' : 'mr-auto items-start')}
                         >
-                          {/* Label */}
                           <div className={'flex items-center gap-1.5 mb-1 px-1 ' + (isUser ? 'flex-row-reverse' : 'flex-row')}>
                             <div className={'p-1 rounded-full ' + (isUser ? 'bg-indigo-100 text-indigo-600' : 'bg-purple-100 text-purple-600')}>
                               {isUser ? <User size={12} /> : <Sparkles size={12} />}
@@ -480,9 +450,7 @@ export default function App() {
                             </span>
                           </div>
 
-                          {/* Bubble */}
                           <div className={'p-3 sm:p-4 rounded-3xl shadow-md break-words max-w-full ' + bubbleCls}>
-                            {/* Reply context */}
                             {msg.replyCtx && (
                               <div className={'mb-2 p-2 rounded-lg text-xs italic border-l-4 ' +
                                 (isUser ? 'bg-white/20 border-white/40 text-indigo-100' : dark ? 'bg-slate-700 border-indigo-400 text-slate-300' : 'bg-slate-50 border-indigo-300 text-slate-500')}>
@@ -490,15 +458,13 @@ export default function App() {
                                 <div className="line-clamp-2">{msg.replyCtx}</div>
                               </div>
                             )}
-                            {/* Image preview in bubble */}
                             {msg.imgUrl && (
                               <img src={msg.imgUrl} alt="uploaded"
                                 className="rounded-xl mb-2 max-h-44 object-contain border border-white/20" />
                             )}
-                            {/* Text — Nastaleeq font for Urdu content */}
                             <div
                               className="whitespace-pre-line leading-relaxed text-[14px] sm:text-[15px]"
-                              style={isUrdu ? { fontFamily: "'Noto Nastaliq Urdu', serif", lineHeight: '2.2', direction: 'rtl' } : {}}
+                              style={hasUrdu ? { fontFamily: "'Noto Nastaliq Urdu', serif", lineHeight: '2.4', direction: 'rtl', textAlign: 'right' } : {}}
                             >
                               {msg.content
                                 ? msg.content
@@ -513,7 +479,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Scroll arrow — only when messages exist AND scrolled up */}
                 <AnimatePresence>
                   {showScroll && chat.length > 0 && (
                     <motion.button
@@ -527,14 +492,13 @@ export default function App() {
                 </AnimatePresence>
               </div>
 
-              {/* Input box — flex-shrink-0, always at bottom */}
+              {/* Input — always at bottom */}
               <div
                 className={'flex-shrink-0 border-t backdrop-blur-xl ' +
                   (dark ? 'bg-slate-900/95 border-slate-700' : 'bg-white/95 border-slate-200')}
                 style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 10px)' }}
               >
                 <div className="max-w-4xl mx-auto px-3 pt-2 pb-1 sm:px-5">
-                  {/* Reply strip */}
                   {replyingTo !== null && (
                     <div className={'mb-2 flex items-center gap-2 p-2 rounded-xl border ' +
                       (dark ? 'bg-indigo-900/30 border-indigo-800' : 'bg-indigo-50 border-indigo-200')}>
@@ -542,12 +506,11 @@ export default function App() {
                         <span className="font-bold mr-1">Replying:</span>
                         <span className="italic opacity-75">{chat[replyingTo].content.substring(0, 55)}...</span>
                       </div>
-                      <button onClick={() => setReplyingTo(null)} className="text-indigo-400 hover:text-red-400 text-sm">
+                      <button onClick={() => setReplyingTo(null)} className="text-indigo-400 hover:text-red-400">
                         <X size={14} />
                       </button>
                     </div>
                   )}
-                  {/* Image preview */}
                   {selImg && (
                     <div className="mb-2 relative inline-block">
                       <img src={selImg} alt="preview" className="h-16 rounded-xl border border-indigo-400 object-contain" />
@@ -557,9 +520,7 @@ export default function App() {
                       </button>
                     </div>
                   )}
-                  {/* Input row */}
-                  <div className="flex items-end gap-2">
-                    {/* Image button */}
+                  <div className="flex items-center gap-2">
                     <button
                       onClick={() => fileRef.current?.click()}
                       disabled={imgLoading}
@@ -570,8 +531,6 @@ export default function App() {
                       {imgLoading ? <Loader2 size={18} className="animate-spin" /> : <ImagePlus size={18} />}
                     </button>
                     <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onImagePick} />
-
-                    {/* Textarea */}
                     <textarea
                       value={question}
                       onChange={e => setQuestion(e.target.value)}
@@ -580,7 +539,6 @@ export default function App() {
                       placeholder="Ask your question here... (Press Enter to send)"
                       className={'flex-1 p-2.5 pr-12 rounded-2xl border focus:ring-4 outline-none resize-none text-sm transition-all ' + inp}
                     />
-                    {/* Send button */}
                     <button
                       onClick={() => submit()}
                       disabled={loading || (!question.trim() && !selImg)}
