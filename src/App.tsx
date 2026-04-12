@@ -3,7 +3,8 @@ import Groq from "groq-sdk";
 import {
   BookOpen, MessageSquareText, Loader2, ChevronLeft,
   Folder, AlignLeft, AlignJustify, BookText,
-  Send, Sparkles, User, Moon, Sun, ChevronDown
+  Send, Sparkles, User, Moon, Sun, ChevronDown,
+  Camera, X, Image as ImageIcon
 } from 'lucide-react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -29,6 +30,100 @@ const DYNAMIC_HEADINGS = [
   "Your question awaits...",
   "Let's dive into some knowledge!"
 ];
+
+// Helper: Convert file to base64
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = (error) => reject(error);
+  });
+};
+
+// Helper: Resize image to fit within 33MP and 4MB base64 limit for Llama 4 Scout
+const resizeImageForLlama4 = async (file: File): Promise<{ base64: string; file: File }> => {
+  const MAX_PIXELS = 33177600; // 33 megapixels
+  const MAX_BASE64_SIZE = 4 * 1024 * 1024; // 4MB for base64
+
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      img.src = e.target?.result as string;
+    };
+
+    img.onload = () => {
+      const originalPixels = img.width * img.height;
+
+      // Step 1: Calculate target dimensions
+      let targetWidth = img.width;
+      let targetHeight = img.height;
+
+      if (originalPixels > MAX_PIXELS) {
+        const ratio = Math.sqrt(MAX_PIXELS / originalPixels);
+        targetWidth = Math.floor(img.width * ratio);
+        targetHeight = Math.floor(img.height * ratio);
+      }
+
+      // Step 2: Draw on canvas
+      const canvas = document.createElement('canvas');
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+
+      // Step 3: Try different quality levels to meet base64 size limit
+      const tryQuality = (quality: number): Promise<string> => {
+        return new Promise((res) => {
+          canvas.toBlob((blob) => {
+            if (!blob) {
+              res('');
+              return;
+            }
+            const reader = new FileReader();
+            reader.onloadend = () => res(reader.result as string);
+            reader.readAsDataURL(blob);
+          }, 'image/jpeg', quality);
+        });
+      };
+
+      const findOptimalQuality = async (): Promise<string> => {
+        let quality = 0.9;
+        let base64 = await tryQuality(quality);
+
+        while (base64.length > MAX_BASE64_SIZE && quality > 0.3) {
+          quality -= 0.1;
+          base64 = await tryQuality(quality);
+        }
+        return base64;
+      };
+
+      findOptimalQuality().then((base64) => {
+        // Convert base64 back to file for attachment display
+        const byteString = atob(base64.split(',')[1]);
+        const mimeString = base64.split(',')[0].split(':')[1].split(';')[0];
+        const ab = new ArrayBuffer(byteString.length);
+        const ia = new Uint8Array(ab);
+        for (let i = 0; i < byteString.length; i++) {
+          ia[i] = byteString.charCodeAt(i);
+        }
+        const blob = new Blob([ab], { type: mimeString });
+        const resizedFile = new File([blob], file.name, {
+          type: mimeString,
+          lastModified: Date.now(),
+        });
+
+        resolve({ base64, file: resizedFile });
+      }).catch(reject);
+    };
+
+    img.onerror = reject;
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+};
 
 const FloatingShape = memo(function FloatingShape({
   position, color, speed, scale = 1
@@ -76,38 +171,368 @@ function buildPrompt(
   answerLength: string,
   userQuestion: string,
   history: { role: string; content: string }[],
-  replyContext?: string
+  replyContext?: string,
+  hasImage: boolean = false
 ): string {
   const historyText = history.map((h) => h.role + ': ' + h.content).join('\n');
   const replyNote = replyContext ? 'Note: User is replying to: "' + replyContext + '"' : '';
+  const imageNote = hasImage ? 'The user has uploaded an image. Please analyze it and incorporate its content into your response.' : '';
 
   let lines: string[] = [];
 
+  // Pakistani Urdu specific instruction
+  const baseInstruction = `
+    You are "Esa AI", a compassionate and knowledgeable Pakistani teacher.
+    Your responses must be in **authentic Pakistani Urdu** (not Indian Urdu).
+    Use respectful vocabulary like "آپ", "جناب", and avoid Indian phrases like "ज़रूर" (use "ضرور" instead).
+    Provide **clear, friendly, and easy-to-understand** explanations suitable for students.
+    Follow the exact structured format below.
+  `;
+
   if (answerLength === 'short') {
     lines = [
-      'Line 1: وعلیکم السلام',
+      'Section 1 label (write exactly): 🌸 اردو تشریح',
+      'Write exactly 5 lines in pure Pakistani Urdu script. No English, no Roman.',
       '',
-      'Section 1 label (write exactly): \uD83C\uDF38 Urdu Explanation',
-      'Write exactly 5 lines in pure Urdu script. No English, no Roman.',
-      '',
-      'Section 2 label (write exactly): \uD83D\uDCD6 English Definition',
+      'Section 2 label (write exactly): 📖 English Definition',
       'Write exactly 3 lines in simple English.',
       '',
-      'Section 3 label (write exactly): \uD83D\uDCA1 Example',
+      'Section 3 label (write exactly): 💡 مثال',
       'Write exactly 2 lines with a real example.',
       '',
-      'Section 4 label (write exactly): \uD83D\uDD24 Roman Urdu',
+      'Section 4 label (write exactly): 🔤 Roman Urdu',
       'Translate sections 1+2+3 into Roman Urdu.',
     ];
   } else if (answerLength === 'long') {
     lines = [
-      'Line 1: وعلیکم السلام',
+      'Section 1 label (write exactly): 🌸 اردو تشریح',
+      'Write exactly 10 lines in pure Pakistani Urdu script. No English, no Roman.',
       '',
-      'Section 1 label (write exactly): \uD83C\uDF38 Urdu Explanation',
-      'Write exactly 10 lines in pure Urdu script. No English, no Roman.',
-      '',
-      'Section 2 label (write exactly): \uD83D\uDCD6 English Definition',
+      'Section 2 label (write exactly): 📖 English Definition',
       'Write exactly 5 lines in simple English.',
+      '',
+      'Section 3 label (write exactly): 💡 مثال',
+      'Write exactly 3 lines with a real example.',
+      '',
+      'Section 4 label (write exactly): 🔤 Roman Urdu',
+      'Translate sections 1+2+3 into Roman Urdu.',
+    ];
+  } else {
+    lines = [
+      'Section 1 label (write exactly): 🌸 اردو تشریح',
+      'Write exactly 19 lines in pure Pakistani Urdu script. No English, no Roman.',
+      '',
+      'Section 2 label (write exactly): 📖 English Definition',
+      'Write exactly 10 lines in simple English.',
+      '',
+      'Section 3 label (write exactly): 💡 مثال',
+      'Write exactly 6 lines with detailed real examples.',
+      '',
+      'Section 4 label (write exactly): 🔤 Roman Urdu',
+      'Translate sections 1+2+3 into Roman Urdu.',
+    ];
+  }
+
+  return [
+    baseInstruction,
+    'Subject: ' + book,
+    '',
+    'Conversation history:',
+    historyText,
+    '',
+    replyNote,
+    imageNote,
+    '',
+    'Student question: ' + userQuestion,
+    '',
+    'STRICT FORMAT:',
+    'Line 1: وعلیکم السلام',
+    ...lines,
+    '',
+    'RULES:',
+    '1. Use Pakistani Urdu vocabulary and style.',
+    '2. Provide easy-to-understand explanations.',
+    '3. Urdu section must be in Urdu script only.',
+    '4. Roman Urdu must cover all previous sections.',
+    '5. No extra text outside the format.',
+  ].join('\n');
+}
+
+type ChatMsg = {
+  role: 'user' | 'model';
+  content: string;
+  replyContext?: string;
+  imageAttachment?: { name: string; preview: string };
+};
+
+export default function App() {
+  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [screen, setScreen] = useState<1 | 2 | 3>(1);
+  const [book, setBook] = useState('');
+  const [answerLength, setAnswerLength] = useState('');
+  const [question, setQuestion] = useState('');
+  const [chatHistory, setChatHistory] = useState<ChatMsg[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<number | null>(null);
+  const [chatHeading, setChatHeading] = useState('');
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [attachedImage, setAttachedImage] = useState<{ file: File; preview: string; base64: string } | null>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setChatHeading(DYNAMIC_HEADINGS[Math.floor(Math.random() * DYNAMIC_HEADINGS.length)]);
+  }, [screen]);
+
+  const scrollToBottom = () => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  };
+
+  const handleScroll = () => {
+    if (!chatContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+    setShowScrollBtn(scrollHeight - scrollTop - clientHeight > 120);
+  };
+
+  const handleImageSelect = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file.');
+      return;
+    }
+
+    try {
+      // Resize and compress image
+      const { base64, file: resizedFile } = await resizeImageForLlama4(file);
+      const preview = URL.createObjectURL(resizedFile);
+      setAttachedImage({ file: resizedFile, preview, base64 });
+    } catch (error) {
+      console.error('Error processing image:', error);
+      alert('Could not process image. Please try another one.');
+    }
+  };
+
+  const handleCameraClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleImageSelect(file);
+    }
+  };
+
+  const removeAttachedImage = () => {
+    if (attachedImage?.preview) {
+      URL.revokeObjectURL(attachedImage.preview);
+    }
+    setAttachedImage(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleSubmit = async (text?: string) => {
+    const userQuestion = text || question;
+    if (!userQuestion.trim() && !attachedImage) return;
+
+    const currentReplyContext = replyingTo !== null ? chatHistory[replyingTo].content : undefined;
+    setQuestion('');
+    setReplyingTo(null);
+    setLoading(true);
+
+    const imageAttachment = attachedImage ? {
+      name: attachedImage.file.name,
+      preview: attachedImage.preview
+    } : undefined;
+
+    const userMsg: ChatMsg = {
+      role: 'user',
+      content: userQuestion || 'Please analyze this image',
+      replyContext: currentReplyContext,
+      imageAttachment
+    };
+
+    const aiMsg: ChatMsg = { role: 'model', content: '' };
+    const historyForPrompt = [...chatHistory, userMsg];
+
+    setChatHistory((prev) => [...prev, userMsg, aiMsg]);
+    setAttachedImage(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    setTimeout(() => scrollToBottom(), 100);
+
+    try {
+      const ai = new Groq({
+        apiKey: import.meta.env.VITE_GROQ_API_KEY,
+        dangerouslyAllowBrowser: true,
+      });
+
+      const prompt = buildPrompt(
+        book,
+        answerLength,
+        userMsg.content,
+        historyForPrompt,
+        currentReplyContext,
+        !!attachedImage
+      );
+
+      // Prepare messages with vision support if image attached
+      const messages: any[] = [];
+      
+      if (attachedImage) {
+        messages.push({
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: attachedImage.base64 } }
+          ]
+        });
+      } else {
+        messages.push({ role: 'user', content: prompt });
+      }
+
+      const response = await ai.chat.completions.create({
+        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+        messages,
+        stream: true,
+        max_tokens: 2048,
+      });
+
+      let fullText = '';
+      for await (const chunk of response) {
+        const part = chunk.choices[0]?.delta?.content || '';
+        if (part) {
+          fullText += part;
+          setChatHistory((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = { ...updated[updated.length - 1], content: fullText };
+            return updated;
+          });
+        }
+      }
+      setTimeout(() => scrollToBottom(), 50);
+    } catch (error: unknown) {
+      const rawError = error instanceof Error ? error.message : JSON.stringify(error);
+      let msg = 'An unknown error occurred.';
+      if (rawError.includes('503') || rawError.includes('high demand')) {
+        msg = 'AI is busy. Please try again.';
+      } else if (rawError.includes('403') || rawError.includes('PERMISSION_DENIED')) {
+        msg = 'API Key error.';
+      } else if (rawError.includes('413') || rawError.includes('too large')) {
+        msg = 'Image too large even after compression. Please try a smaller image.';
+      } else if (rawError.length > 0) {
+        msg = rawError.substring(0, 200);
+      }
+      setChatHistory((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { ...updated[updated.length - 1], content: '⚠️ ' + msg };
+        return updated;
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const pv = {
+    initial: { opacity: 0, y: 20 },
+    animate: { opacity: 1, y: 0, transition: { duration: 0.4 } },
+    exit: { opacity: 0, y: -20, transition: { duration: 0.3 } },
+  };
+
+  const dm = isDarkMode;
+
+  return (
+    <div className={dm ? 'dark' : ''}>
+      <Background3D isDarkMode={dm} />
+
+      <button
+        onClick={() => setIsDarkMode(!dm)}
+        className={
+          'fixed top-5 right-5 z-50 p-3 rounded-full backdrop-blur-md transition-all duration-300 shadow-lg ' +
+          (dm ? 'bg-white/10 text-yellow-300 hover:bg-white/20' : 'bg-slate-800/10 text-slate-700 hover:bg-slate-800/20')
+        }
+      >
+        {dm ? <Sun size={24} /> : <Moon size={24} />}
+      </button>
+
+      <div className="min-h-screen relative z-10 overflow-x-hidden">
+        <AnimatePresence mode="wait">
+
+          {/* SCREEN 1 */}
+          {screen === 1 && (
+            <motion.div key="s1" variants={pv} initial="initial" animate="animate" exit="exit"
+              className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8">
+              <div className="text-center mb-12">
+                <motion.div
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ delay: 0.2, type: 'spring' }}
+                  className={
+                    'inline-block p-4 rounded-full backdrop-blur-md mb-6 border ' +
+                    (dm ? 'bg-white/10 border-white/20' : 'bg-white/50 border-slate-200 shadow-sm')
+                  }
+                >
+                  <BookOpen size={48} className="text-indigo-500" />
+                </motion.div>
+                <h1 className={'text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight drop-shadow-lg mb-4 ' + (dm ? 'text-white' : 'text-slate-800')}>
+                  {"Esa's CIT "}
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">
+                    Learning Hub
+                  </span>
+                </h1>
+                <p className={'text-lg sm:text-xl max-w-2xl mx-auto drop-shadow ' + (dm ? 'text-slate-300' : 'text-slate-600')}>
+                  Select a subject to begin your personalized learning journey
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 w-full max-w-7xl">
+                {BOOKS.map((b, i) => (
+                  <motion.button key={b}
+                    initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.05 }}
+                    whileHover={{ scale: 1.03, y: -5 }} whileTap={{ scale: 0.98 }}
+                    onClick={() => { setBook(b); setChatHistory([]); setScreen(2); }}
+                    className={
+                      'flex items-center gap-4 p-6 backdrop-blur-md rounded-2xl shadow-lg border transition-colors text-left group will-change-transform ' +
+                      (dm ? 'bg-white/10 hover:bg-white/20 border-white/20' : 'bg-white/80 hover:bg-white border-slate-200')
+                    }
+                  >
+                    <div className="p-3 bg-indigo-100 text-indigo-600 rounded-xl group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                      <Folder size={24} />
+                    </div>
+                    <span className={'font-semibold text-lg leading-tight ' + (dm ? 'text-white' : 'text-slate-800')}>{b}</span>
+                  </motion.button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {/* SCREEN 2 */}
+          {screen === 2 && (
+            <motion.div key="s2" variants={pv} initial="initial" animate="animate" exit="exit"
+              className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8">
+              <div className="w-full max-w-4xl">
+                <button onClick={() => setScreen(1)}
+                  className={
+                    'flex items-center gap-2 mb-8 transition-colors px-4 py-2 rounded-full backdrop-blur-sm w-fit ' +
+                    (dm ? 'text-white/80 hover:text-white bg-white/10 hover:bg-white/20' : 'text-slate-600 hover:text-slate-900 bg-slate-200/50 hover:bg-slate-200')
+                  }
+                >
+                  <ChevronLeft size={20} /> Back to Subjects
+                </button>
+                <div className="text-center mb-12">
+                  <h2 className={'text-3xl sm:text-4xl md:text-5xl font-bold mb-4 drop-shadow-md ' + (dm ? 'text-white' : 'text-slate-800')}>{book}</h2>
+                  <p className={'text-lg sm:text-xl drop-shadow ' + (dm ? 'text-indigo-200' : 'text-indigo-600')}>
+                    How detailed would you like your answers to be?
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {[
+                    { id: 'short', title: 'Short & Sweet', icon: AlignLeft, desc: 'Quick summaries and to-the-point answers.' },
+                    { id:       'Write exactly 5 lines in simple English.',
       '',
       'Section 3 label (write exactly): \uD83D\uDCA1 Example',
       'Write exactly 3 lines with a real example.',
@@ -292,11 +717,11 @@ export default function App() {
                   <BookOpen size={48} className="text-indigo-500" />
                 </motion.div>
                 <h1 className={'text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight drop-shadow-lg mb-4 ' + (dm ? 'text-white' : 'text-slate-800')}>
-                  {"Esa's CIT "}
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">
-                    Learning Hub
-                  </span>
-                </h1>
+  {"Esa "}
+  <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">
+    Learning Hub
+  </span>
+</h1>
                 <p className={'text-lg sm:text-xl max-w-2xl mx-auto drop-shadow ' + (dm ? 'text-slate-300' : 'text-slate-600')}>
                   Select a subject to begin your personalized learning journey
                 </p>
