@@ -3,8 +3,7 @@ import Groq from "groq-sdk";
 import {
   BookOpen, MessageSquareText, Loader2, ChevronLeft,
   Folder, AlignLeft, AlignJustify, BookText,
-  Send, Sparkles, User, Moon, Sun, ChevronDown,
-  Camera, X
+  Send, Sparkles, User, Moon, Sun, ChevronDown, ImagePlus, X
 } from 'lucide-react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -31,83 +30,443 @@ const DYNAMIC_HEADINGS = [
   "Let's dive into some knowledge!"
 ];
 
-// Helper: Resize image to fit within 33MP and 4MB base64 limit for Llama 4 Scout
-const resizeImageForLlama4 = async (file: File): Promise<{ base64: string; file: File }> => {
-  const MAX_PIXELS = 33177600; // 33 megapixels
-  const MAX_BASE64_SIZE = 4 * 1024 * 1024; // 4MB for base64
-
-  return new Promise((resolve, reject) => {
+// Resize image to max 33 megapixels
+async function resizeImage(file: File): Promise<string> {
+  return new Promise((resolve) => {
     const img = new Image();
-    const reader = new FileReader();
-
-    reader.onload = (e) => {
-      img.src = e.target?.result as string;
-    };
-
+    const url = URL.createObjectURL(file);
     img.onload = () => {
-      const originalPixels = img.width * img.height;
+      const MAX_MP = 33_000_000;
+      const totalPixels = img.width * img.height;
+      let w = img.width;
+      let h = img.height;
+      if (totalPixels > MAX_MP) {
+        const ratio = Math.sqrt(MAX_MP / totalPixels);
+        w = Math.floor(img.width * ratio);
+        h = Math.floor(img.height * ratio);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.src = url;
+  });
+}
 
-      // Step 1: Calculate target dimensions
-      let targetWidth = img.width;
-      let targetHeight = img.height;
+const FloatingShape = memo(function FloatingShape({
+  position, color, speed, scale = 1
+}: {
+  position: [number, number, number]; color: string; speed: number; scale?: number;
+}) {
+  const meshRef = useRef<THREE.Mesh>(null);
+  useFrame((state) => {
+    if (meshRef.current) {
+      meshRef.current.rotation.x = state.clock.elapsedTime * speed;
+      meshRef.current.rotation.y = state.clock.elapsedTime * speed * 0.8;
+      meshRef.current.position.y = position[1] + Math.sin(state.clock.elapsedTime * speed) * 0.5;
+    }
+  });
+  return (
+    <mesh position={position} ref={meshRef} scale={scale}>
+      <icosahedronGeometry args={[1, 0]} />
+      <meshStandardMaterial color={color} wireframe transparent opacity={0.6} />
+    </mesh>
+  );
+});
 
-      if (originalPixels > MAX_PIXELS) {
-        const ratio = Math.sqrt(MAX_PIXELS / originalPixels);
-        targetWidth = Math.floor(img.width * ratio);
-        targetHeight = Math.floor(img.height * ratio);
+const Background3D = memo(function Background3D({ isDarkMode }: { isDarkMode: boolean }) {
+  return (
+    <div className={'fixed inset-0 z-0 pointer-events-none transition-colors duration-500 ' + (isDarkMode ? 'bg-slate-900' : 'bg-slate-100')}>
+      <Canvas camera={{ position: [0, 0, 10], fov: 50 }}>
+        <ambientLight intensity={isDarkMode ? 0.5 : 0.8} />
+        <directionalLight position={[10, 10, 5]} intensity={isDarkMode ? 1 : 1.5} />
+        <FloatingShape position={[-4, 2, -2]} color={isDarkMode ? "#818cf8" : "#6366f1"} speed={0.2} scale={1.5} />
+        <FloatingShape position={[5, -2, -5]} color={isDarkMode ? "#c084fc" : "#a855f7"} speed={0.15} scale={2} />
+        <FloatingShape position={[0, 0, -8]} color={isDarkMode ? "#60a5fa" : "#3b82f6"} speed={0.1} scale={3} />
+        <FloatingShape position={[-5, -4, -4]} color={isDarkMode ? "#f472b6" : "#ec4899"} speed={0.25} scale={1.2} />
+        <FloatingShape position={[6, 4, -3]} color={isDarkMode ? "#2dd4bf" : "#14b8a6"} speed={0.18} scale={1.8} />
+      </Canvas>
+    </div>
+  );
+});
+
+function buildPrompt(
+  book: string,
+  answerLength: string,
+  userQuestion: string,
+  history: { role: string; content: string }[],
+  replyContext?: string,
+  hasImage?: boolean
+): string {
+  const historyText = history.map((h) => h.role + ': ' + h.content).join('\n');
+  const replyNote = replyContext ? 'Note: User is replying to: "' + replyContext + '"' : '';
+  const imageNote = hasImage
+    ? 'The student has shared an image. Please read and solve/explain everything visible in the image according to the format below.'
+    : '';
+
+  let lines: string[] = [];
+
+  if (answerLength === 'short') {
+    lines = [
+      'Line 1: وعلیکم السلام',
+      '',
+      'Section 1 label: \uD83C\uDF38 اردو وضاحت',
+      'Exactly 5 lines. Write in pure Pakistani Urdu script (not Indian Urdu). No English, no Roman words in this section.',
+      '',
+      'Section 2 label: \uD83D\uDCD6 English Definition',
+      'Exactly 3 lines in simple English.',
+      '',
+      'Section 3 label: \uD83D\uDCA1 Example',
+      'Exactly 2 lines with a clear real example.',
+      '',
+      'Section 4 label: \uD83D\uDD24 Roman Urdu',
+      'Translate sections 1+2+3 all into Roman Urdu (Pakistani style).',
+    ];
+  } else if (answerLength === 'long') {
+    lines = [
+      'Line 1: وعلیکم السلام',
+      '',
+      'Section 1 label: \uD83C\uDF38 اردو وضاحت',
+      'Exactly 10 lines. Write in pure Pakistani Urdu script (not Indian Urdu). No English, no Roman words in this section.',
+      '',
+      'Section 2 label: \uD83D\uDCD6 English Definition',
+      'Exactly 5 lines in simple English.',
+      '',
+      'Section 3 label: \uD83D\uDCA1 Example',
+      'Exactly 3 lines with a clear real example.',
+      '',
+      'Section 4 label: \uD83D\uDD24 Roman Urdu',
+      'Translate sections 1+2+3 all into Roman Urdu (Pakistani style).',
+    ];
+  } else {
+    lines = [
+      'Line 1: وعلیکم السلام',
+      '',
+      'Section 1 label: \uD83C\uDF38 اردو وضاحت',
+      'Exactly 19 lines. Write in pure Pakistani Urdu script (not Indian Urdu). No English, no Roman words in this section.',
+      '',
+      'Section 2 label: \uD83D\uDCD6 English Definition',
+      'Exactly 10 lines in simple English.',
+      '',
+      'Section 3 label: \uD83D\uDCA1 Example',
+      'Exactly 6 lines with detailed real examples.',
+      '',
+      'Section 4 label: \uD83D\uDD24 Roman Urdu',
+      'Translate sections 1+2+3 all into Roman Urdu (Pakistani style).',
+    ];
+  }
+
+  return [
+    'You are Esa AI, a caring and expert Pakistani teacher for the subject: ' + book,
+    'IMPORTANT: Always use Pakistani Urdu vocabulary and style, NOT Indian Urdu. For example use "ہے" style Pakistani expressions.',
+    '',
+    'Conversation history:',
+    historyText,
+    '',
+    replyNote,
+    imageNote,
+    '',
+    'Student question: ' + userQuestion,
+    '',
+    'STRICT FORMAT TO FOLLOW:',
+    lines.join('\n'),
+    '',
+    'RULES:',
+    '1. Follow the format exactly as above.',
+    '2. Urdu section must be pure Pakistani Urdu script only - no English or Roman.',
+    '3. Roman Urdu section must include translation of all 3 sections.',
+    '4. No bullet points. Plain paragraphs.',
+    '5. No extra text outside the format.',
+  ].join('\n');
+}
+
+type ChatMsg = {
+  role: 'user' | 'model';
+  content: string;
+  replyContext?: string;
+  imageUrl?: string;
+};
+
+export default function App() {
+  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [screen, setScreen] = useState<1 | 2 | 3>(1);
+  const [book, setBook] = useState('');
+  const [answerLength, setAnswerLength] = useState('');
+  const [question, setQuestion] = useState('');
+  const [chatHistory, setChatHistory] = useState<ChatMsg[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<number | null>(null);
+  const [chatHeading, setChatHeading] = useState('');
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [imageProcessing, setImageProcessing] = useState(false);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setChatHeading(DYNAMIC_HEADINGS[Math.floor(Math.random() * DYNAMIC_HEADINGS.length)]);
+  }, [screen]);
+
+  const scrollToBottom = () => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  };
+
+  const handleScroll = () => {
+    if (!chatContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+    setShowScrollBtn(scrollHeight - scrollTop - clientHeight > 120);
+  };
+
+  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageProcessing(true);
+    try {
+      const resized = await resizeImage(file);
+      setSelectedImage(resized);
+    } catch {
+      alert('Image processing failed. Please try again.');
+    } finally {
+      setImageProcessing(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleSubmit = async (text?: string) => {
+    const userQuestion = text || question || (selectedImage ? 'Please solve this image.' : '');
+    if (!userQuestion.trim() && !selectedImage) return;
+
+    const currentReplyContext = replyingTo !== null ? chatHistory[replyingTo].content : undefined;
+    const imageToSend = selectedImage;
+
+    setQuestion('');
+    setSelectedImage(null);
+    setReplyingTo(null);
+    setLoading(true);
+
+    const userMsg: ChatMsg = {
+      role: 'user',
+      content: userQuestion,
+      replyContext: currentReplyContext,
+      imageUrl: imageToSend || undefined,
+    };
+    const aiMsg: ChatMsg = { role: 'model', content: '' };
+    const historyForPrompt = [...chatHistory, userMsg];
+
+    setChatHistory((prev) => [...prev, userMsg, aiMsg]);
+    setTimeout(() => scrollToBottom(), 100);
+
+    try {
+      const ai = new Groq({
+        apiKey: import.meta.env.VITE_GROQ_API_KEY,
+        dangerouslyAllowBrowser: true,
+      });
+
+      const prompt = buildPrompt(book, answerLength, userQuestion, historyForPrompt, currentReplyContext, !!imageToSend);
+
+      let response;
+
+      if (imageToSend) {
+        // Vision model for image
+        const base64 = imageToSend.split(',')[1];
+        const mimeType = imageToSend.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
+        response = await ai.chat.completions.create({
+          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: 'data:' + mimeType + ';base64,' + base64,
+                  },
+                },
+                {
+                  type: 'text',
+                  text: prompt,
+                },
+              ],
+            },
+          ],
+          stream: true,
+          max_tokens: 2048,
+        });
+      } else {
+        // Text only model
+        response = await ai.chat.completions.create({
+          model: 'llama-3.3-70b-versatile',
+          messages: [{ role: 'user', content: prompt }],
+          stream: true,
+          max_tokens: 2048,
+        });
       }
 
-      // Step 2: Draw on canvas
-      const canvas = document.createElement('canvas');
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
-
-      // Step 3: Try different quality levels to meet base64 size limit
-      const tryQuality = (quality: number): Promise<string> => {
-        return new Promise((res) => {
-          canvas.toBlob((blob) => {
-            if (!blob) {
-              res('');
-              return;
-            }
-            const reader = new FileReader();
-            reader.onloadend = () => res(reader.result as string);
-            reader.readAsDataURL(blob);
-          }, 'image/jpeg', quality);
-        });
-      };
-
-      const findOptimalQuality = async (): Promise<string> => {
-        let quality = 0.9;
-        let base64 = await tryQuality(quality);
-
-        while (base64.length > MAX_BASE64_SIZE && quality > 0.3) {
-          quality -= 0.1;
-          base64 = await tryQuality(quality);
+      let fullText = '';
+      for await (const chunk of response) {
+        const part = chunk.choices[0]?.delta?.content || '';
+        if (part) {
+          fullText += part;
+          setChatHistory((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = { ...updated[updated.length - 1], content: fullText };
+            return updated;
+          });
         }
-        return base64;
-      };
+      }
+      setTimeout(() => scrollToBottom(), 50);
 
-      findOptimalQuality().then((base64) => {
-        // Convert base64 back to file for attachment display
-        const byteString = atob(base64.split(',')[1]);
-        const mimeString = base64.split(',')[0].split(':')[1].split(';')[0];
-        const ab = new ArrayBuffer(byteString.length);
-        const ia = new Uint8Array(ab);
-        for (let i = 0; i < byteString.length; i++) {
-          ia[i] = byteString.charCodeAt(i);
+    } catch (error: unknown) {
+      const rawError = error instanceof Error ? error.message : JSON.stringify(error);
+      let msg = 'An unknown error occurred.';
+      if (rawError.includes('503') || rawError.includes('high demand')) {
+        msg = 'AI is busy. Please try again.';
+      } else if (rawError.includes('403') || rawError.includes('PERMISSION_DENIED')) {
+        msg = 'API Key error.';
+      } else if (rawError.length > 0) {
+        msg = rawError.substring(0, 200);
+      }
+      setChatHistory((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { ...updated[updated.length - 1], content: '\u26A0\uFE0F ' + msg };
+        return updated;
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const pv = {
+    initial: { opacity: 0, y: 20 },
+    animate: { opacity: 1, y: 0, transition: { duration: 0.4 } },
+    exit: { opacity: 0, y: -20, transition: { duration: 0.3 } },
+  };
+
+  const dm = isDarkMode;
+
+  return (
+    <div className={dm ? 'dark' : ''}>
+      <Background3D isDarkMode={dm} />
+
+      <button
+        onClick={() => setIsDarkMode(!dm)}
+        className={
+          'fixed top-5 right-5 z-50 p-3 rounded-full backdrop-blur-md transition-all duration-300 shadow-lg ' +
+          (dm ? 'bg-white/10 text-yellow-300 hover:bg-white/20' : 'bg-slate-800/10 text-slate-700 hover:bg-slate-800/20')
         }
-        const blob = new Blob([ab], { type: mimeString });
-        const resizedFile = new File([blob], file.name, {
-          type: mimeString,
-          lastModified: Date.now(),
-        });
+      >
+        {dm ? <Sun size={24} /> : <Moon size={24} />}
+      </button>
 
-        resolve({ base64, file: resizedFile });
-      }).catch(reject);
-    };
+      <div className="min-h-screen relative z-10 overflow-x-hidden">
+        <AnimatePresence mode="wait">
+
+          {/* SCREEN 1 - BOOKS */}
+          {screen === 1 && (
+            <motion.div key="s1" variants={pv} initial="initial" animate="animate" exit="exit"
+              className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8">
+              <div className="text-center mb-12">
+                <motion.div
+                  initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                  transition={{ delay: 0.2, type: 'spring' }}
+                  className={'inline-block p-4 rounded-full backdrop-blur-md mb-6 border ' + (dm ? 'bg-white/10 border-white/20' : 'bg-white/50 border-slate-200 shadow-sm')}
+                >
+                  <BookOpen size={48} className="text-indigo-500" />
+                </motion.div>
+                <h1 className={'text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight drop-shadow-lg mb-4 ' + (dm ? 'text-white' : 'text-slate-800')}>
+                  {"Esa's CIT "}
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">Learning Hub</span>
+                </h1>
+                <p className={'text-lg sm:text-xl max-w-2xl mx-auto drop-shadow ' + (dm ? 'text-slate-300' : 'text-slate-600')}>
+                  Select a subject to begin your personalized learning journey
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 w-full max-w-7xl">
+                {BOOKS.map((b, i) => (
+                  <motion.button key={b}
+                    initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
+                    whileHover={{ scale: 1.03, y: -5 }} whileTap={{ scale: 0.98 }}
+                    onClick={() => { setBook(b); setChatHistory([]); setScreen(2); }}
+                    className={'flex items-center gap-4 p-6 backdrop-blur-md rounded-2xl shadow-lg border transition-colors text-left group will-change-transform ' + (dm ? 'bg-white/10 hover:bg-white/20 border-white/20' : 'bg-white/80 hover:bg-white border-slate-200')}
+                  >
+                    <div className="p-3 bg-indigo-100 text-indigo-600 rounded-xl group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                      <Folder size={24} />
+                    </div>
+                    <span className={'font-semibold text-lg leading-tight ' + (dm ? 'text-white' : 'text-slate-800')}>{b}</span>
+                  </motion.button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {/* SCREEN 2 - ANSWER LENGTH */}
+          {screen === 2 && (
+            <motion.div key="s2" variants={pv} initial="initial" animate="animate" exit="exit"
+              className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8">
+              <div className="w-full max-w-4xl">
+                <button onClick={() => setScreen(1)}
+                  className={'flex items-center gap-2 mb-8 transition-colors px-4 py-2 rounded-full backdrop-blur-sm w-fit ' + (dm ? 'text-white/80 hover:text-white bg-white/10 hover:bg-white/20' : 'text-slate-600 hover:text-slate-900 bg-slate-200/50 hover:bg-slate-200')}
+                >
+                  <ChevronLeft size={20} /> Back to Subjects
+                </button>
+                <div className="text-center mb-12">
+                  <h2 className={'text-3xl sm:text-4xl md:text-5xl font-bold mb-4 drop-shadow-md ' + (dm ? 'text-white' : 'text-slate-800')}>{book}</h2>
+                  <p className={'text-lg sm:text-xl drop-shadow ' + (dm ? 'text-indigo-200' : 'text-indigo-600')}>
+                    How detailed would you like your answers to be?
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {[
+                    { id: 'short', title: 'Short & Sweet', icon: AlignLeft, desc: 'Quick summaries and to-the-point answers.' },
+                    { id: 'long', title: 'Detailed', icon: AlignJustify, desc: 'Comprehensive explanations covering all aspects.' },
+                    { id: 'in-depth', title: 'In-Depth Masterclass', icon: BookText, desc: 'Extensive deep-dive with examples and full breakdowns.' },
+                  ].map((opt, i) => (
+                    <motion.button key={opt.id}
+                      initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}
+                      whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                      onClick={() => { setAnswerLength(opt.id); setScreen(3); }}
+                      className={'flex flex-col items-center text-center p-8 backdrop-blur-md rounded-3xl shadow-xl border transition-all group will-change-transform ' + (dm ? 'bg-white/10 hover:bg-white/20 border-white/20' : 'bg-white/80 hover:bg-white border-slate-200')}
+                    >
+                      <div className="p-5 bg-gradient-to-br from-indigo-100 to-purple-100 text-indigo-600 rounded-2xl mb-6 group-hover:scale-110 transition-transform shadow-inner">
+                        <opt.icon size={40} />
+                      </div>
+                      <h3 className={'text-2xl font-bold mb-3 ' + (dm ? 'text-white' : 'text-slate-800')}>{opt.title}</h3>
+                      <p className={'leading-relaxed ' + (dm ? 'text-slate-300' : 'text-slate-600')}>{opt.desc}</p>
+                    </motion.button>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* SCREEN 3 - CHAT */}
+          {screen === 3 && (
+            <motion.div key="s3" variants={pv} initial="initial" animate="animate" exit="exit"
+              className="flex flex-col" style={{ height: '100dvh' }}>
+
+              {/* Header */}
+              <div className="flex-shrink-0 p-4 sm:p-6 max-w-5xl w-full mx-auto">
+                <div className={'backdrop-blur-md p-4 sm:p-5 rounded-3xl border shadow-lg ' + (dm ? 'bg-white/10 border-white/20' : 'bg-white/80 border-slate-200')}>
+                  <button onClick={() => setScreen(2)}
+                    className={'flex items-center gap-1 mb-1 transition-colors text-sm font-medium ' + (dm ? 'text-indigo-200 hover:text-white' : 'text-indigo-600 hover:text-indigo-900')}
+                  >
+                    <ChevronLeft size={16} /> Change Settings
+                  </button>
+                  <h2 className={'text-xl sm:text-2xl font-bold flex items-center gap-2 ' + (dm ? 'text-white' : 'text-slate-800')}>
+                    <Sparkles className="text-yellow-300" size={24} />
+                    {chatHeading}
+                  </h2>
+                  <p className={'mt-1 text-sm font-medium flex items-center gap-2 ' + (dm ? 'text-indigo-200' : 'text-indigo-600')}>
+                    <Folder size={14} /> {book}
+                    <span className="opacity-50">•</span>
+                    {answerLength === 'short' ? 'Short' : answerLength === 'long' ? 'Detailed' : 'In-Depth'}
+        };
 
     img.onerror = reject;
     reader.onerror = reject;
