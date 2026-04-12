@@ -1,305 +1,602 @@
 import { useState, useRef, useEffect, memo } from 'react';
-import Groq from "groq-sdk";
+import Groq from 'groq-sdk';
 import {
   BookOpen, MessageSquareText, Loader2, ChevronLeft,
   Folder, AlignLeft, AlignJustify, BookText,
-  Send, Sparkles, User, Moon, Sun, ArrowDown, ImagePlus, X
+  Send, Sparkles, User, Moon, Sun, ChevronDown, ImagePlus, X
 } from 'lucide-react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { motion, AnimatePresence } from 'motion/react';
 
+/* ── Google Nastaleeq font injected at runtime ── */
+if (typeof document !== 'undefined') {
+  const fontLink = document.createElement('link');
+  fontLink.rel = 'stylesheet';
+  fontLink.href = 'https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@400;700&display=swap';
+  document.head.appendChild(fontLink);
+}
+
 const BOOKS = [
-  "Tarjama-Tul-Quran",
-  "Islamiat/Pak Studies",
-  "Applied Mathematics-II",
-  "Business Communication",
-  "Data Communication & Computer Networks",
-  "Digital Logic Design",
-  "Operating System",
-  "Database Management System",
-  "Computer Graphics Designing",
-  "Web Development"
+  'Tarjama-Tul-Quran',
+  'Islamiat/Pak Studies',
+  'Applied Mathematics-II',
+  'Business Communication',
+  'Data Communication & Computer Networks',
+  'Digital Logic Design',
+  'Operating System',
+  'Database Management System',
+  'Computer Graphics Designing',
+  'Web Development',
 ];
 
-// Image utility with resizing
-async function resizeImage(file: File): Promise<{ base64: string; file: File }> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const MAX = 1024;
-        let w = img.width; let h = img.height;
-        if (w > h) { if (w > MAX) { h *= MAX / w; w = MAX; } }
-        else { if (h > MAX) { w *= MAX / h; h = MAX; } }
-        const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
-        const ctx = canvas.getContext('2d')!; ctx.drawImage(img, 0, 0, w, h);
-        const base64 = canvas.toDataURL('image/jpeg', 0.8);
-        const byteString = atob(base64.split(',')[1]);
-        const mimeString = base64.split(',')[0].split(':')[1].split(';')[0];
-        const ab = new ArrayBuffer(byteString.length);
-        const ia = new Uint8Array(ab);
-        for (let i = 0; i < byteString.length; i++) { ia[i] = byteString.charCodeAt(i); }
-        const blob = new Blob([ab], { type: mimeString });
-        const resizedFile = new File([blob], file.name, { type: mimeString, lastModified: Date.now() });
-        resolve({ base64, file: resizedFile });
-      };
-      img.onerror = reject;
-      img.src = e.target?.result as string;
+const HEADINGS = [
+  "What's on your mind today?",
+  'Ready to learn something new?',
+  'What will we explore today?',
+  'Your question awaits...',
+  "Let's dive into some knowledge!",
+];
+
+/* ── Image resize to max 33 MP ── */
+async function resizeImage(file: File): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const MAX = 33_000_000;
+      const total = img.width * img.height;
+      let w = img.width, h = img.height;
+      if (total > MAX) {
+        const r = Math.sqrt(MAX / total);
+        w = Math.floor(w * r);
+        h = Math.floor(h * r);
+      }
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d')!.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg', 0.85));
     };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
+    img.src = url;
   });
 }
 
-const FloatingShape = memo(function FloatingShape({ position, color, speed, scale = 1 }: any) {
-  const meshRef = useRef<THREE.Mesh>(null);
-  useFrame((state) => {
-    if (meshRef.current) {
-      meshRef.current.rotation.x = state.clock.elapsedTime * speed;
-      meshRef.current.rotation.y = state.clock.elapsedTime * speed * 0.8;
-      meshRef.current.position.y = position[1] + Math.sin(state.clock.elapsedTime * speed) * 0.5;
+/* ── Build AI prompt ── */
+function buildPrompt(
+  book: string, answerLength: string, question: string,
+  history: { role: string; content: string }[],
+  replyCtx?: string, hasImage?: boolean
+): string {
+  const hist = history.map(h => h.role + ': ' + h.content).join('\n');
+  const replyNote = replyCtx ? 'User is replying to: "' + replyCtx + '"' : '';
+  const imgNote = hasImage ? 'Student shared an image — read and solve everything in it.' : '';
+
+  let fmt: string[];
+  if (answerLength === 'short') {
+    fmt = [
+      'Line 1: وعلیکم السلام',
+      '',
+      'Label: \uD83C\uDF38 اردو وضاحت',
+      'Exactly 5 lines — pure Pakistani Urdu script only, zero English or Roman.',
+      '',
+      'Label: \uD83D\uDCD6 English Definition',
+      'Exactly 3 lines — simple English.',
+      '',
+      'Label: \uD83D\uDCA1 Example',
+      'Exactly 2 lines — clear real example.',
+      '',
+      'Label: \uD83D\uDD24 Roman Urdu',
+      'Translate sections 1+2+3 into Roman Urdu (Pakistani style).',
+    ];
+  } else if (answerLength === 'long') {
+    fmt = [
+      'Line 1: وعلیکم السلام',
+      '',
+      'Label: \uD83C\uDF38 اردو وضاحت',
+      'Exactly 10 lines — pure Pakistani Urdu script only, zero English or Roman.',
+      '',
+      'Label: \uD83D\uDCD6 English Definition',
+      'Exactly 5 lines — simple English.',
+      '',
+      'Label: \uD83D\uDCA1 Example',
+      'Exactly 3 lines — clear real example.',
+      '',
+      'Label: \uD83D\uDD24 Roman Urdu',
+      'Translate sections 1+2+3 into Roman Urdu (Pakistani style).',
+    ];
+  } else {
+    fmt = [
+      'Line 1: وعلیکم السلام',
+      '',
+      'Label: \uD83C\uDF38 اردو وضاحت',
+      'Exactly 19 lines — pure Pakistani Urdu script only, zero English or Roman.',
+      '',
+      'Label: \uD83D\uDCD6 English Definition',
+      'Exactly 10 lines — simple English.',
+      '',
+      'Label: \uD83D\uDCA1 Example',
+      'Exactly 6 lines — detailed real examples.',
+      '',
+      'Label: \uD83D\uDD24 Roman Urdu',
+      'Translate sections 1+2+3 into Roman Urdu (Pakistani style).',
+    ];
+  }
+
+  return [
+    'You are Esa AI — an expert, accurate Pakistani teacher for: ' + book,
+    'CRITICAL: Always give correct, factual answers. Never guess.',
+    'Use Pakistani Urdu vocabulary and style (not Indian Urdu).',
+    '',
+    'Conversation history:',
+    hist,
+    '',
+    replyNote,
+    imgNote,
+    '',
+    'Student question: ' + question,
+    '',
+    'STRICT FORMAT:',
+    fmt.join('\n'),
+    '',
+    'RULES:',
+    '1. Follow format exactly.',
+    '2. Urdu section = pure Urdu script only.',
+    '3. Roman Urdu section = translate all 3 sections.',
+    '4. Plain paragraphs, no bullet points.',
+    '5. No extra text outside format.',
+  ].join('\n');
+}
+
+type ChatMsg = { role: 'user' | 'model'; content: string; replyCtx?: string; imgUrl?: string };
+
+/* ── 3D Background ── */
+const FloatingShape = memo(function FloatingShape({
+  position, color, speed, scale = 1,
+}: { position: [number, number, number]; color: string; speed: number; scale?: number }) {
+  const ref = useRef<THREE.Mesh>(null);
+  useFrame((s) => {
+    if (ref.current) {
+      ref.current.rotation.x = s.clock.elapsedTime * speed;
+      ref.current.rotation.y = s.clock.elapsedTime * speed * 0.8;
+      ref.current.position.y = position[1] + Math.sin(s.clock.elapsedTime * speed) * 0.5;
     }
   });
   return (
-    <mesh position={position} ref={meshRef} scale={scale}>
+    <mesh position={position} ref={ref} scale={scale}>
       <icosahedronGeometry args={[1, 0]} />
-      <meshStandardMaterial color={color} wireframe transparent opacity={0.06} />
+      <meshStandardMaterial color={color} wireframe transparent opacity={0.6} />
     </mesh>
   );
 });
 
-const Background3D = memo(function Background3D({ isDarkMode }: { isDarkMode: boolean }) {
+const Background3D = memo(function Background3D({ dark }: { dark: boolean }) {
   return (
-    <div className={`fixed inset-0 z-[-1] pointer-events-none transition-colors duration-1000 ${isDarkMode ? 'bg-[#0f172a]' : 'bg-[#fffefb]'}`}>
-      <Canvas camera={{ position: [0, 0, 15], fov: 50 }}>
-        <ambientLight intensity={isDarkMode ? 0.3 : 1.2} />
-        <spotLight position={[10, 10, 10]} intensity={isDarkMode ? 1 : 2} />
-        <FloatingShape position={[-6, 4, -12]} color={isDarkMode ? "#6366f1" : "#4f46e5"} speed={0.05} scale={2} />
-        <FloatingShape position={[8, -3, -18]} color={isDarkMode ? "#a855f7" : "#9333ea"} speed={0.04} scale={3} />
-        <FloatingShape position={[0, -8, -15]} color={isDarkMode ? "#3b82f6" : "#2563eb"} speed={0.03} scale={4} />
+    <div className={'fixed inset-0 z-0 pointer-events-none ' + (dark ? 'bg-slate-900' : 'bg-slate-100')}>
+      <Canvas camera={{ position: [0, 0, 10], fov: 50 }}>
+        <ambientLight intensity={dark ? 0.5 : 0.8} />
+        <directionalLight position={[10, 10, 5]} intensity={dark ? 1 : 1.5} />
+        <FloatingShape position={[-4, 2, -2]} color={dark ? '#818cf8' : '#6366f1'} speed={0.2} scale={1.5} />
+        <FloatingShape position={[5, -2, -5]} color={dark ? '#c084fc' : '#a855f7'} speed={0.15} scale={2} />
+        <FloatingShape position={[0, 0, -8]} color={dark ? '#60a5fa' : '#3b82f6'} speed={0.1} scale={3} />
+        <FloatingShape position={[-5, -4, -4]} color={dark ? '#f472b6' : '#ec4899'} speed={0.25} scale={1.2} />
+        <FloatingShape position={[6, 4, -3]} color={dark ? '#2dd4bf' : '#14b8a6'} speed={0.18} scale={1.8} />
       </Canvas>
     </div>
   );
 });
 
-const MessageBubble = ({ msg, isUser }: { msg: any; isUser: boolean }) => {
-  const isUrdu = (text: string) => /[\u0600-\u06FF]/.test(text);
-  const sections = msg.content.split(/\[(.*?)\]/g);
-  return (
-    <div className={`flex flex-col max-w-[95%] sm:max-w-[85%] mb-8 ${isUser ? 'ml-auto items-end' : 'mr-auto items-start'}`}>
-      <div className={`flex items-center gap-2 mb-2 px-1 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
-        <div className={`p-2 rounded-xl shadow-md ${isUser ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-800 text-indigo-500'}`}>
-          {isUser ? <User size={14}/> : <Sparkles size={14}/>}
-        </div>
-        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 opacity-60">
-          {isUser ? 'Student' : 'Esa AI Expert'}
-        </span>
-      </div>
-      <div className={`p-5 rounded-3xl shadow-2xl leading-relaxed relative border transition-all ${isUser 
-        ? 'bg-indigo-600 text-white border-indigo-500 rounded-tr-none' 
-        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 rounded-tl-none'}`}>
-        {msg.imageUrl && <img src={msg.imageUrl} className="mb-4 rounded-2xl w-full h-auto max-h-72 object-cover border-2 border-indigo-500/10 shadow-lg" />}
-        <div className="space-y-4">
-          {sections.length > 1 ? sections.map((part, i) => {
-            if (i % 2 === 1) return <div key={i} className="text-[11px] font-black uppercase text-indigo-600 dark:text-indigo-500 mt-6 tracking-[0.25em] border-b-2 border-indigo-500/20 w-fit pb-1">{part}</div>;
-            const isRtl = isUrdu(part);
-            return <div key={i} dir={isRtl ? 'rtl' : 'ltr'} className={`${isRtl ? 'urdu-text text-[24px] leading-[2.2]' : 'font-bold text-[17px] tracking-tight'}`}>{part.trim()}</div>;
-          }) : <div dir={isUrdu(msg.content) ? 'rtl' : 'ltr'} className={isUrdu(msg.content) ? 'urdu-text text-[24px] leading-[2.2]' : 'font-bold text-[17px] tracking-tight'}>{msg.content}</div>}
-        </div>
-      </div>
-    </div>
-  );
-};
-
+/* ══════════════════ MAIN APP ══════════════════ */
 export default function App() {
-  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [dark, setDark] = useState(true);
   const [screen, setScreen] = useState<1 | 2 | 3>(1);
   const [book, setBook] = useState('');
   const [answerLength, setAnswerLength] = useState('');
   const [question, setQuestion] = useState('');
-  const [chatHistory, setChatHistory] = useState<any[]>([]);
+  const [chat, setChat] = useState<ChatMsg[]>([]);
   const [loading, setLoading] = useState(false);
-  const [showScrollBtn, setShowScrollBtn] = useState(false);
-  const [attachedImage, setAttachedImage] = useState<any>(null);
-  const chatContainerRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [replyingTo, setReplyingTo] = useState<number | null>(null);
+  const [heading, setHeading] = useState('');
+  const [showScroll, setShowScroll] = useState(false);
+  const [selImg, setSelImg] = useState<string | null>(null);
+  const [imgLoading, setImgLoading] = useState(false);
 
-  const scrollToBottom = (behavior: any = 'smooth') => {
-    setTimeout(() => chatContainerRef.current?.scrollTo({ top: chatContainerRef.current.scrollHeight, behavior }), 50);
+  const chatRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setHeading(HEADINGS[Math.floor(Math.random() * HEADINGS.length)]);
+  }, [screen]);
+
+  const scrollBottom = () => {
+    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
   };
 
-  const handleScroll = () => {
-    const el = chatContainerRef.current;
-    if (!el) return;
-    // BUG 4 FIX: Only show arrow if history exists AND user scrolled up more than 100px
-    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    setShowScrollBtn(chatHistory.length > 0 && distanceToBottom > 100);
+  const onScroll = () => {
+    if (!chatRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = chatRef.current;
+    setShowScroll(chat.length > 0 && scrollHeight - scrollTop - clientHeight > 120);
   };
 
-  const handleSubmit = async () => {
-    if (!question.trim() && !attachedImage) return;
-    const imgData = attachedImage;
-    setQuestion(''); setAttachedImage(null); setLoading(true);
-    const userMsg = { role: 'user', content: question || 'Analyzing image...', imageUrl: imgData?.preview };
-    setChatHistory(p => [...p, userMsg, { role: 'model', content: '' }]);
-    scrollToBottom();
+  const onImagePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImgLoading(true);
+    try {
+      setSelImg(await resizeImage(file));
+    } finally {
+      setImgLoading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const submit = async (txt?: string) => {
+    const q = txt || question;
+    if (!q.trim() && !selImg) return;
+    const finalQ = q || 'Please solve this image.';
+    const replyCtx = replyingTo !== null ? chat[replyingTo].content : undefined;
+    const img = selImg;
+
+    setQuestion('');
+    setSelImg(null);
+    setReplyingTo(null);
+    setLoading(true);
+
+    const userMsg: ChatMsg = { role: 'user', content: finalQ, replyCtx, imgUrl: img || undefined };
+    const aiMsg: ChatMsg = { role: 'model', content: '' };
+    const histForPrompt = [...chat, userMsg];
+
+    setChat(prev => [...prev, userMsg, aiMsg]);
+    setTimeout(scrollBottom, 100);
+
     try {
       const ai = new Groq({ apiKey: import.meta.env.VITE_GROQ_API_KEY, dangerouslyAllowBrowser: true });
-      // BUG 3 FIX: Senior CIT Professor persona with 100% precision requirements
-      const expertPrompt = `
-        ROLE: You are "Esa AI Expert", a senior PhD-level CIT Professor.
-        SUBJECT: Strictly ONLY ${book}.
-        ACCURACY RULE: Provide technically 100% precise, factual, and correct answers. NEVER guess. If you are unsure about a specific detail, state that you don't have that information.
-        GREETING: ALWAYS start with "السلام علیکم" (Assalam-o-Alaikum).
-        FORMAT:
-        [🌸 Expert Urdu Explanation]: Detailed analysis in high-quality Urdu.
-        [📖 Professional English]: Academic summary in English.
-        [🔤 Roman Urdu]: Precise translation.
-        QUERY: ${userMsg.content}
-      `;
-      const response = await ai.chat.completions.create({
-        // BUG 3 FIX: Consistently use llama-3.3-70b-versatile for higher reasoning
-        model: imgData ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'llama-3.3-70b-versatile',
-        messages: imgData ? [{ role: 'user', content: [{ type: 'text', text: expertPrompt }, { type: 'image_url', image_url: { url: imgData.base64 } }] }] : [{ role: 'user', content: expertPrompt }],
-        temperature: 0.3, // BUG 3 FIX: Lower temperature for factual accuracy
-        stream: true,
-      });
-      let fullText = '';
-      for await (const chunk of response) {
+      const prompt = buildPrompt(book, answerLength, finalQ, histForPrompt, replyCtx, !!img);
+
+      let res;
+      if (img) {
+        const b64 = img.split(',')[1];
+        const mime = img.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
+        res = await ai.chat.completions.create({
+          model: 'meta-llama/llama-3.2-11b-vision-preview',
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image_url', image_url: { url: 'data:' + mime + ';base64,' + b64 } },
+              { type: 'text', text: prompt },
+            ],
+          }],
+          stream: true, max_tokens: 2048,
+        });
+      } else {
+        res = await ai.chat.completions.create({
+          model: 'llama-3.3-70b-versatile',
+          messages: [{ role: 'user', content: prompt }],
+          stream: true, max_tokens: 2048, temperature: 0.3,
+        });
+      }
+
+      let full = '';
+      for await (const chunk of res) {
         const part = chunk.choices[0]?.delta?.content || '';
         if (part) {
-          fullText += part;
-          setChatHistory(prev => {
-            const updated = [...prev];
-            updated[updated.length - 1] = { ...updated[updated.length - 1], content: fullText };
-            return updated;
+          full += part;
+          setChat(prev => {
+            const u = [...prev];
+            u[u.length - 1] = { ...u[u.length - 1], content: full };
+            return u;
           });
         }
       }
-    } catch (e) { setChatHistory(p => [...p.slice(0, -1), { role: 'model', content: '❌ Connection Error. Please verify your API key and network.' }]); }
-    finally { setLoading(false); scrollToBottom('smooth'); }
+      setTimeout(scrollBottom, 50);
+    } catch (err: unknown) {
+      const raw = err instanceof Error ? err.message : JSON.stringify(err);
+      let msg = 'Unknown error.';
+      if (raw.includes('503') || raw.includes('high demand')) msg = 'AI is busy. Please try again.';
+      else if (raw.includes('403')) msg = 'API Key error.';
+      else msg = raw.substring(0, 200);
+      setChat(prev => { const u = [...prev]; u[u.length - 1] = { ...u[u.length - 1], content: '\u26A0\uFE0F ' + msg }; return u; });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const dm = isDarkMode;
+  const pv = {
+    initial: { opacity: 0, y: 20 },
+    animate: { opacity: 1, y: 0, transition: { duration: 0.4 } },
+    exit: { opacity: 0, y: -20, transition: { duration: 0.3 } },
+  };
+
+  /* colour helpers */
+  const card = dark ? 'bg-white/10 border-white/20' : 'bg-white/80 border-slate-200';
+  const txt = dark ? 'text-white' : 'text-slate-800';
+  const sub = dark ? 'text-slate-300' : 'text-slate-600';
+  const inp = dark
+    ? 'bg-slate-800 border-slate-600 text-white placeholder-slate-400 focus:border-indigo-500 focus:ring-indigo-500/20'
+    : 'bg-white border-slate-300 text-slate-800 placeholder-slate-400 focus:border-indigo-400 focus:ring-indigo-100';
 
   return (
-    // BUG 1 & 5 FIX: Use h-[100dvh] and flex-col for stable layout
-    <div className={`h-[100dvh] flex flex-col font-sans transition-all duration-500 overflow-hidden ${dm ? 'dark bg-[#0f172a]' : 'bg-[#fffefb]'}`}>
-      <Background3D isDarkMode={dm} />
+    <div>
+      <Background3D dark={dark} />
 
-      {/* TOP HEADER - BUG 5 FIX: flex-shrink-0 for stable height */}
-      <header className="flex-shrink-0 z-50 px-6 py-4 flex items-center justify-between border-b border-indigo-500/15 bg-white/80 dark:bg-slate-900/80 backdrop-blur-3xl shadow-sm">
-        <div className="flex items-center gap-4">
-          <BookOpen size={28} className="text-indigo-600" />
-          <h1 className="text-2xl font-black tracking-tighter text-slate-900 dark:text-white">
-            Esa AI <span className="text-indigo-600">Hub</span>
-          </h1>
-        </div>
-        <button onClick={() => setIsDarkMode(!dm)} className="p-3 bg-indigo-500/10 dark:bg-white/5 rounded-2xl text-indigo-600 hover:scale-105 active:scale-95 transition-all shadow-xl">
-          {dm ? <Sun size={20} /> : <Moon size={20} />}
-        </button>
-      </header>
+      {/* Dark/Light toggle */}
+      <button
+        onClick={() => setDark(!dark)}
+        className={'fixed top-5 right-5 z-50 p-3 rounded-full backdrop-blur-md shadow-lg transition-all ' +
+          (dark ? 'bg-white/10 text-yellow-300 hover:bg-white/20' : 'bg-slate-800/10 text-slate-700 hover:bg-slate-800/20')}
+      >
+        {dark ? <Sun size={22} /> : <Moon size={22} />}
+      </button>
 
-      {/* BUG 5 FIX: flex-1 min-h-0 allows content to scale correctly */}
-      <main className="flex-1 min-h-0 flex flex-col relative overflow-hidden">
+      <div className="relative z-10" style={{ minHeight: '100dvh' }}>
         <AnimatePresence mode="wait">
+
+          {/* ═══ SCREEN 1 — BOOKS ═══ */}
           {screen === 1 && (
-            <motion.div key="s1" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="w-full flex-1 overflow-y-auto px-6 py-12 flex flex-col items-center">
-              <h2 className={`text-4xl sm:text-6xl font-black mb-12 tracking-tight text-center text-slate-900 dark:text-white`}>
-                Master your <br/> <span className="text-indigo-600 underline decoration-indigo-200">CIT Subjects</span>
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 w-full max-w-6xl pb-24">
-                {BOOKS.map((b) => (
-                  <button key={b} onClick={() => { setBook(b); setChatHistory([]); setScreen(2); }} className="p-8 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800 rounded-[2.5rem] text-left hover:border-indigo-600 hover:shadow-2xl hover:shadow-indigo-500/20 transition-all group active:scale-95 flex flex-col items-start gap-4">
-                    <div className="p-3 bg-indigo-500/10 rounded-xl text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors"><Folder size={20} /></div>
-                    <span className="text-xl font-bold block leading-tight tracking-tight text-slate-800 dark:text-white">{b}</span>
-                  </button>
+            <motion.div key="s1" variants={pv} initial="initial" animate="animate" exit="exit"
+              className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8">
+              <div className="text-center mb-10">
+                <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                  transition={{ delay: 0.2, type: 'spring' }}
+                  className={'inline-block p-4 rounded-full backdrop-blur-md mb-5 border ' + card}>
+                  <BookOpen size={44} className="text-indigo-400" />
+                </motion.div>
+                <h1 className={'text-4xl sm:text-5xl font-extrabold tracking-tight mb-3 ' + txt}>
+                  {"Esa's CIT "}
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">Learning Hub</span>
+                </h1>
+                <p className={'text-base sm:text-lg max-w-xl mx-auto ' + sub}>
+                  Select a subject to begin your learning journey
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-5 w-full max-w-5xl">
+                {BOOKS.map((b, i) => (
+                  <motion.button key={b}
+                    initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.05 }}
+                    whileHover={{ scale: 1.03, y: -3 }} whileTap={{ scale: 0.97 }}
+                    onClick={() => { setBook(b); setChat([]); setScreen(2); }}
+                    className={'flex items-center gap-3 p-5 rounded-2xl shadow-lg border backdrop-blur-md text-left group transition-colors ' + card}
+                  >
+                    <div className="p-2.5 bg-indigo-100 text-indigo-600 rounded-xl group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                      <Folder size={22} />
+                    </div>
+                    <span className={'font-semibold text-base leading-snug ' + txt}>{b}</span>
+                  </motion.button>
                 ))}
               </div>
             </motion.div>
           )}
 
+          {/* ═══ SCREEN 2 — ANSWER LENGTH ═══ */}
           {screen === 2 && (
-            <motion.div key="s2" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="flex-1 w-full flex flex-col items-center justify-center p-8 text-center bg-transparent">
-              <button onClick={() => setScreen(1)} className="mb-12 flex items-center gap-2 text-indigo-600 dark:text-indigo-500 font-black uppercase tracking-[0.2em] text-[10px] hover:opacity-60 bg-indigo-50 dark:bg-indigo-950 px-5 py-2.5 rounded-full">
-                <ChevronLeft size={14}/> BACK TO HUB
-              </button>
-              <h2 className="text-4xl font-black mb-12 tracking-tighter text-slate-900 dark:text-white">{book}</h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-4xl">
-                {[
-                  { id: 'short', title: 'Essentials', icon: AlignLeft },
-                  { id: 'long', title: 'Standard', icon: AlignJustify },
-                  { id: 'in-depth', title: 'The Master', icon: BookText },
-                ].map((o) => (
-                  <button key={o.id} onClick={() => { setAnswerLength(o.id); setChatHistory([]); setScreen(3); }} className="p-10 bg-white dark:bg-slate-900 border-2 border-slate-50 dark:border-slate-800 rounded-[3rem] shadow-2xl flex flex-col items-center hover:border-indigo-600 hover:scale-[1.03] transition-all">
-                    <div className="p-5 bg-indigo-600 text-white rounded-[1.5rem] mb-8 shadow-2xl shadow-indigo-600/30"><o.icon size={36} /></div>
-                    <span className="text-2xl font-black text-slate-900 dark:text-white">{o.title}</span>
-                  </button>
-                ))}
+            <motion.div key="s2" variants={pv} initial="initial" animate="animate" exit="exit"
+              className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8">
+              <div className="w-full max-w-3xl">
+                <button onClick={() => setScreen(1)}
+                  className={'flex items-center gap-1 mb-7 px-4 py-2 rounded-full backdrop-blur-sm text-sm font-medium transition-colors ' +
+                    (dark ? 'text-white/80 hover:text-white bg-white/10 hover:bg-white/20' : 'text-slate-600 hover:text-slate-900 bg-slate-200/50 hover:bg-slate-200')}>
+                  <ChevronLeft size={18} /> Back to Subjects
+                </button>
+                <div className="text-center mb-10">
+                  <h2 className={'text-3xl sm:text-4xl font-bold mb-2 ' + txt}>{book}</h2>
+                  <p className={sub}>How detailed would you like your answers?</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+                  {[
+                    { id: 'short', title: 'Short & Sweet', icon: AlignLeft, desc: 'Quick, to-the-point answers.' },
+                    { id: 'long', title: 'Detailed', icon: AlignJustify, desc: 'Comprehensive explanations.' },
+                    { id: 'in-depth', title: 'In-Depth Masterclass', icon: BookText, desc: 'Deep-dive with full breakdowns.' },
+                  ].map((opt, i) => (
+                    <motion.button key={opt.id}
+                      initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.1 }}
+                      whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
+                      onClick={() => { setAnswerLength(opt.id); setScreen(3); }}
+                      className={'flex flex-col items-center text-center p-7 rounded-3xl shadow-xl border backdrop-blur-md transition-all group ' + card}
+                    >
+                      <div className="p-4 bg-gradient-to-br from-indigo-100 to-purple-100 text-indigo-600 rounded-2xl mb-5 group-hover:scale-110 transition-transform">
+                        <opt.icon size={36} />
+                      </div>
+                      <h3 className={'text-xl font-bold mb-2 ' + txt}>{opt.title}</h3>
+                      <p className={'text-sm ' + sub}>{opt.desc}</p>
+                    </motion.button>
+                  ))}
+                </div>
               </div>
             </motion.div>
           )}
 
+          {/* ═══ SCREEN 3 — CHAT ═══ */}
           {screen === 3 && (
-            <motion.div key="s3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 w-full flex flex-col max-w-5xl mx-auto overflow-hidden bg-transparent">
-              {/* BUG 5 FIX: Compact Chat Nav */}
-              <div className="flex-shrink-0 px-6 py-4 border-b border-indigo-500/10 flex items-center justify-between bg-white dark:bg-slate-900 shadow-sm">
-                <button onClick={() => setScreen(2)} className="flex items-center gap-2 font-black text-indigo-600 dark:text-indigo-400 hover:opacity-70 bg-indigo-50 dark:bg-indigo-900/30 px-4 py-2 rounded-xl text-xs"><ChevronLeft size={16}/> BACK</button>
-                <div className="text-center">
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-500 dark:text-indigo-400 opacity-60 block">{book}</span>
-                  <span className="text-xs font-black text-slate-800 dark:text-white uppercase tracking-widest">{answerLength} Session</span>
-                </div>
-                <div className="w-10" />
-              </div>
+            <motion.div key="s3" variants={pv} initial="initial" animate="animate" exit="exit"
+              className="flex flex-col" style={{ height: '100dvh' }}>
 
-              {/* MESSAGES LIST - BUG 1 FIX: flex-1, overflow-y-auto, -webkit-overflow-scrolling */}
-              <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-6 py-8 space-y-8 scroll-smooth" style={{ WebkitOverflowScrolling: 'touch' }}>
-                {chatHistory.length === 0 && (
-                  <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-6">
-                    <div className="w-20 h-20 bg-indigo-600 rounded-[2rem] flex items-center justify-center shadow-3xl shadow-indigo-600/30">
-                      <Sparkles size={40} className="text-white"/>
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-black uppercase tracking-tight mb-2 text-indigo-600 dark:text-indigo-500">How can I help?</h3>
-                      <p className="max-w-xs font-bold text-slate-500 dark:text-slate-400 text-sm italic">
-                        Ask your CIT question about {book}.
-                      </p>
-                    </div>
+              {/* Header — never shrinks */}
+              <div className="flex-shrink-0 px-3 pt-3 pb-2 sm:px-5 sm:pt-4 max-w-4xl w-full mx-auto">
+                <div className={'rounded-2xl border backdrop-blur-md px-4 py-3 shadow-lg ' + card}>
+                  <button onClick={() => setScreen(2)}
+                    className={'flex items-center gap-1 mb-1 text-xs font-medium transition-colors ' +
+                      (dark ? 'text-indigo-300 hover:text-white' : 'text-indigo-600 hover:text-indigo-900')}>
+                    <ChevronLeft size={14} /> Change Settings
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="text-yellow-300 flex-shrink-0" size={20} />
+                    <h2 className={'text-base sm:text-lg font-bold truncate ' + txt}>{heading}</h2>
                   </div>
-                )}
-                {chatHistory.map((m, i) => <MessageBubble key={i} msg={m} isUser={m.role === 'user'} />)}
+                  <p className={'text-xs mt-0.5 flex items-center gap-1.5 ' + (dark ? 'text-indigo-300' : 'text-indigo-600')}>
+                    <Folder size={12} /> {book}
+                    <span className="opacity-40">•</span>
+                    {answerLength === 'short' ? 'Short' : answerLength === 'long' ? 'Detailed' : 'In-Depth'}
+                  </p>
+                </div>
               </div>
 
-              {/* FAB SCROLL - BUG 4 Logic embedded in handleScroll */}
-              <AnimatePresence>
-                {showScrollBtn && (
-                  <motion.button initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} onClick={() => scrollToBottom()} className="absolute bottom-32 right-6 w-12 h-12 bg-indigo-600 text-white rounded-full flex items-center justify-center shadow-3xl z-50 hover:bg-indigo-700 active:scale-90 transition-all"><ArrowDown size={24}/></motion.button>
-                )}
-              </AnimatePresence>
+              {/* Chat area — flex-1, scrollable */}
+              <div className="flex-1 min-h-0 px-3 sm:px-5 max-w-4xl w-full mx-auto relative">
+                <div className={'h-full rounded-2xl border backdrop-blur-xl shadow-xl overflow-hidden ' +
+                  (dark ? 'bg-slate-900/60 border-white/15' : 'bg-white/85 border-slate-200')}>
+                  <div
+                    ref={chatRef}
+                    onScroll={onScroll}
+                    className="h-full overflow-y-auto p-3 sm:p-5 space-y-4"
+                    style={{ WebkitOverflowScrolling: 'touch' }}
+                  >
+                    {/* Empty state */}
+                    {chat.length === 0 && (
+                      <div className="h-full flex flex-col items-center justify-center text-center py-10 opacity-60">
+                        <MessageSquareText size={52} className="text-indigo-400 mb-3" />
+                        <p className={'text-base font-medium max-w-xs ' + sub}>
+                          {"I'm Esa AI. Ask me anything about "}{book}{"!"}
+                        </p>
+                        <p className={'text-xs mt-1 ' + sub}>You can also send an image 📷</p>
+                      </div>
+                    )}
 
-              {/* INPUT CONTAINER - BUG 5 FIX: flex-shrink-0 for stable bottom placement */}
-              <div className="flex-shrink-0 p-6 bg-gradient-to-t from-white dark:from-[#0f172a] via-white/95 dark:via-[#0f172a]/95 to-transparent">
-                <div className="max-w-4xl mx-auto flex flex-col gap-4">
-                  {attachedImage && (
-                    <div className="flex items-center gap-4 bg-indigo-50 dark:bg-indigo-900/30 p-3 rounded-2xl w-fit border border-indigo-500/20">
-                      <div className="relative w-14 h-14 rounded-xl overflow-hidden shadow-2xl border-2 border-indigo-500"><img src={attachedImage.preview} className="w-full h-full object-cover" /><button onClick={() => setAttachedImage(null)} className="absolute top-0 right-0 p-1.5 bg-black/70 text-white rounded-bl-xl"><X size={12}/></button></div>
-                      <span className="text-[10px] font-black tracking-widest text-indigo-600 dark:text-indigo-400 uppercase">Image Staged</span>
+                    {/* Messages */}
+                    {chat.map((msg, idx) => {
+                      const isUser = msg.role === 'user';
+                      const bubbleCls = isUser
+                        ? 'bg-gradient-to-br from-indigo-500 to-indigo-600 text-white rounded-tr-sm'
+                        : dark
+                          ? 'bg-slate-800 border border-slate-700 text-slate-100 rounded-tl-sm'
+                          : 'bg-white border border-slate-200 text-slate-800 rounded-tl-sm';
+                      const isUrdu = !isUser && msg.content.includes('\u0627\u0631\u062F\u0648');
+
+                      return (
+                        <motion.div key={idx}
+                          initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          className={'flex flex-col max-w-[90%] sm:max-w-[82%] ' + (isUser ? 'ml-auto items-end' : 'mr-auto items-start')}
+                        >
+                          {/* Label */}
+                          <div className={'flex items-center gap-1.5 mb-1 px-1 ' + (isUser ? 'flex-row-reverse' : 'flex-row')}>
+                            <div className={'p-1 rounded-full ' + (isUser ? 'bg-indigo-100 text-indigo-600' : 'bg-purple-100 text-purple-600')}>
+                              {isUser ? <User size={12} /> : <Sparkles size={12} />}
+                            </div>
+                            <span className={'text-xs font-semibold ' + (dark ? 'text-slate-400' : 'text-slate-500')}>
+                              {isUser ? 'You' : 'Esa AI'}
+                            </span>
+                          </div>
+
+                          {/* Bubble */}
+                          <div className={'p-3 sm:p-4 rounded-3xl shadow-md break-words max-w-full ' + bubbleCls}>
+                            {/* Reply context */}
+                            {msg.replyCtx && (
+                              <div className={'mb-2 p-2 rounded-lg text-xs italic border-l-4 ' +
+                                (isUser ? 'bg-white/20 border-white/40 text-indigo-100' : dark ? 'bg-slate-700 border-indigo-400 text-slate-300' : 'bg-slate-50 border-indigo-300 text-slate-500')}>
+                                <span className="font-semibold not-italic block mb-0.5 uppercase text-[10px] opacity-60">Replying to:</span>
+                                <div className="line-clamp-2">{msg.replyCtx}</div>
+                              </div>
+                            )}
+                            {/* Image preview in bubble */}
+                            {msg.imgUrl && (
+                              <img src={msg.imgUrl} alt="uploaded"
+                                className="rounded-xl mb-2 max-h-44 object-contain border border-white/20" />
+                            )}
+                            {/* Text — Nastaleeq font for Urdu content */}
+                            <div
+                              className="whitespace-pre-line leading-relaxed text-[14px] sm:text-[15px]"
+                              style={isUrdu ? { fontFamily: "'Noto Nastaliq Urdu', serif", lineHeight: '2.2', direction: 'rtl' } : {}}
+                            >
+                              {msg.content
+                                ? msg.content
+                                : (!isUser && loading)
+                                  ? <span className="flex items-center gap-2 opacity-50"><Loader2 className="animate-spin" size={14} /> Esa AI typing...</span>
+                                  : ''}
+                            </div>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Scroll arrow — only when messages exist AND scrolled up */}
+                <AnimatePresence>
+                  {showScroll && chat.length > 0 && (
+                    <motion.button
+                      initial={{ opacity: 0, scale: 0.7 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.7 }}
+                      onClick={scrollBottom}
+                      className={'absolute bottom-3 right-6 z-20 p-2.5 rounded-full shadow-xl border ' +
+                        (dark ? 'bg-indigo-600 text-white border-indigo-500 hover:bg-indigo-700' : 'bg-white text-indigo-600 border-slate-300 hover:bg-indigo-50')}>
+                      <ChevronDown size={18} />
+                    </motion.button>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* Input box — flex-shrink-0, always at bottom */}
+              <div
+                className={'flex-shrink-0 border-t backdrop-blur-xl ' +
+                  (dark ? 'bg-slate-900/95 border-slate-700' : 'bg-white/95 border-slate-200')}
+                style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 10px)' }}
+              >
+                <div className="max-w-4xl mx-auto px-3 pt-2 pb-1 sm:px-5">
+                  {/* Reply strip */}
+                  {replyingTo !== null && (
+                    <div className={'mb-2 flex items-center gap-2 p-2 rounded-xl border ' +
+                      (dark ? 'bg-indigo-900/30 border-indigo-800' : 'bg-indigo-50 border-indigo-200')}>
+                      <div className={'flex-1 truncate text-xs ' + (dark ? 'text-indigo-200' : 'text-indigo-700')}>
+                        <span className="font-bold mr-1">Replying:</span>
+                        <span className="italic opacity-75">{chat[replyingTo].content.substring(0, 55)}...</span>
+                      </div>
+                      <button onClick={() => setReplyingTo(null)} className="text-indigo-400 hover:text-red-400 text-sm">
+                        <X size={14} />
+                      </button>
                     </div>
                   )}
-                  <div className="flex items-center gap-3 bg-white dark:bg-slate-900 border-2 lg:border-4 border-slate-100 dark:border-slate-800 rounded-[2rem] lg:rounded-[3rem] p-2.5 shadow-2xl focus-within:border-indigo-600 transition-all">
-                    <button onClick={() => fileInputRef.current?.click()} className="p-3 text-slate-400 hover:text-indigo-600 active:scale-90 transition-all"><ImagePlus size={24} /></button>
-                    <input type="file" ref={fileInputRef} onChange={async (e) => { const f = e.target.files?.[0]; if(f){ const r = await resizeImage(f); setAttachedImage({ file: r.file, preview: URL.createObjectURL(r.file), base64: r.base64 }); } }} accept="image/*" className="hidden" />
-                    <input value={question} onChange={e => setQuestion(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }} placeholder={`Ask ${book} Professor...`} className="flex-1 bg-transparent border-none focus:ring-0 text-base font-bold text-slate-900 dark:text-white px-2 outline-none placeholder:opacity-30 dark:placeholder:text-slate-500" />
-                    <button onClick={handleSubmit} disabled={loading || (!question.trim() && !attachedImage)} className="p-3.5 bg-indigo-600 text-white rounded-[1.2rem] lg:rounded-[1.8rem] shadow-xl hover:bg-indigo-700 disabled:opacity-20 active:scale-90 transition-all">{loading ? <Loader2 size={22} className="animate-spin" /> : <Send size={22} className="ml-1" />}</button>
+                  {/* Image preview */}
+                  {selImg && (
+                    <div className="mb-2 relative inline-block">
+                      <img src={selImg} alt="preview" className="h-16 rounded-xl border border-indigo-400 object-contain" />
+                      <button onClick={() => setSelImg(null)}
+                        className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 shadow">
+                        <X size={12} />
+                      </button>
+                    </div>
+                  )}
+                  {/* Input row */}
+                  <div className="flex items-end gap-2">
+                    {/* Image button */}
+                    <button
+                      onClick={() => fileRef.current?.click()}
+                      disabled={imgLoading}
+                      title="Upload image"
+                      className={'flex-shrink-0 p-2.5 rounded-xl border transition-all ' +
+                        (dark ? 'bg-slate-800 border-slate-600 text-indigo-300 hover:bg-slate-700' : 'bg-white border-slate-300 text-indigo-500 hover:bg-indigo-50')}
+                    >
+                      {imgLoading ? <Loader2 size={18} className="animate-spin" /> : <ImagePlus size={18} />}
+                    </button>
+                    <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onImagePick} />
+
+                    {/* Textarea */}
+                    <textarea
+                      value={question}
+                      onChange={e => setQuestion(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
+                      rows={2}
+                      placeholder="Ask your question here... (Press Enter to send)"
+                      className={'flex-1 p-2.5 pr-12 rounded-2xl border focus:ring-4 outline-none resize-none text-sm transition-all ' + inp}
+                    />
+                    {/* Send button */}
+                    <button
+                      onClick={() => submit()}
+                      disabled={loading || (!question.trim() && !selImg)}
+                      className="flex-shrink-0 p-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 transition-all shadow-md"
+                    >
+                      {loading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                    </button>
                   </div>
                 </div>
               </div>
+
             </motion.div>
           )}
+
         </AnimatePresence>
-      </main>
+      </div>
     </div>
   );
 }
