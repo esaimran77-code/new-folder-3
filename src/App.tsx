@@ -81,7 +81,7 @@ function buildPrompt(
   }
 
   const format = [
-    'Line 1: وعلیکم السلام',
+    'Line 1: اَلسَّلَامُ عَلَیْکُمْ',
     '',
     '\uD83C\uDF38 اردو وضاحت',
     'Write exactly ' + urduLines + ' lines.',
@@ -464,7 +464,7 @@ export default function App() {
                             )}
                             <div
                               className="whitespace-pre-line leading-relaxed text-[14px] sm:text-[15px]"
-                              style={hasUrdu ? { fontFamily: "'Noto Nastaliq Urdu', serif", lineHeight: '2.4', direction: 'rtl', textAlign: 'right' } : {}}
+                              style={hasUrdu ? { fontFamily: "'Noto Nastaliq Urdu', serif", lineHeight: '2.4' } : {}}
                             >
                               {msg.content
                                 ? msg.content
@@ -535,7 +535,7 @@ export default function App() {
                       value={question}
                       onChange={e => setQuestion(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
-                      rows={2}
+                      rows={1}
                       placeholder="Ask your question here... (Press Enter to send)"
                       className={'flex-1 p-2.5 pr-12 rounded-2xl border focus:ring-4 outline-none resize-none text-sm transition-all ' + inp}
                     />
