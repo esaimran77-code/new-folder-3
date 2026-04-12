@@ -81,20 +81,22 @@ const FloatingShape = memo(function FloatingShape({
   return (
     <mesh position={position} ref={meshRef} scale={scale}>
       <icosahedronGeometry args={[1, 0]} />
-      <meshStandardMaterial color={color} wireframe transparent opacity={0.05} />
+      {/* MISTAKE 3 FIX: Increased opacity to 0.15 for better visibility */}
+      <meshStandardMaterial color={color} wireframe transparent opacity={0.15} />
     </mesh>
   );
 });
 
 const Background3D = memo(function Background3D({ isDarkMode }: { isDarkMode: boolean }) {
   return (
-    <div className={`fixed inset-0 z-[-1] pointer-events-none transition-colors duration-1000 ${isDarkMode ? 'bg-[#05070a]' : 'bg-slate-50'}`}>
+    <div className={`fixed inset-0 z-[-1] pointer-events-none transition-colors duration-1000 
+      ${isDarkMode ? 'bg-[#0a1128]' : 'bg-[#fffdf5]'}`}> {/* Requested Theme Colors */}
       <Canvas camera={{ position: [0, 0, 15], fov: 50 }}>
-        <ambientLight intensity={isDarkMode ? 0.1 : 0.8} />
-        <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={isDarkMode ? 0.3 : 1} />
-        <FloatingShape position={[-6, 4, -12]} color={isDarkMode ? "#6366f1" : "#818cf8"} speed={0.1} scale={2} />
-        <FloatingShape position={[8, -3, -18]} color={isDarkMode ? "#a855f7" : "#c084fc"} speed={0.08} scale={3} />
-        <FloatingShape position={[0, -8, -15]} color={isDarkMode ? "#3b82f6" : "#60a5fa"} speed={0.05} scale={4} />
+        <ambientLight intensity={isDarkMode ? 0.2 : 0.8} />
+        <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={isDarkMode ? 0.4 : 1} />
+        <FloatingShape position={[-6, 4, -12]} color={isDarkMode ? "#6366f1" : "#4f46e5"} speed={0.1} scale={2} />
+        <FloatingShape position={[8, -3, -18]} color={isDarkMode ? "#a855f7" : "#9333ea"} speed={0.08} scale={3} />
+        <FloatingShape position={[0, -8, -15]} color={isDarkMode ? "#3b82f6" : "#2563eb"} speed={0.05} scale={4} />
       </Canvas>
     </div>
   );
@@ -106,7 +108,7 @@ const MessageBubble = ({ msg, isUser, loading, dm, onReply }: { msg: ChatMsg; is
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-      className={`flex flex-col max-w-[92%] sm:max-w-[80%] mb-4 ${isUser ? 'ml-auto items-end' : 'mr-auto items-start'}`}>
+      className={`flex flex-col max-w-[95%] sm:max-w-[80%] mb-4 ${isUser ? 'ml-auto items-end' : 'mr-auto items-start'}`}>
       
       <div className={`flex items-center gap-2 mb-1 px-1 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
         <div className={`p-1.5 rounded-lg ${isUser ? 'bg-indigo-600' : 'bg-white dark:bg-slate-800 shadow-sm'} text-xs font-bold`}>
@@ -181,7 +183,8 @@ export default function App() {
   const handleScroll = () => {
     const el = chatContainerRef.current;
     if (!el) return;
-    setShowScrollBtn(el.scrollHeight - el.scrollTop - el.clientHeight > 300);
+    // MISTAKE 1 FIX: Only show scroll button if history exists AND user scrolled up
+    setShowScrollBtn(chatHistory.length > 0 && el.scrollHeight - el.scrollTop - el.clientHeight > 300);
   };
 
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -214,7 +217,7 @@ export default function App() {
         
         STRICT RULES:
         1. MANDATORY: Start EVERY response with exactly "السلام علیکم" (Assalam-o-Alaikum).
-        2. SUBJECT ISOLATION: Focus strictly on "${book}". If the question is irrelevant to ${book}, politely explain as a teacher and then answer, but keep context to ${book}.
+        2. SUBJECT ISOLATION: Focus strictly on "${book}".
         3. FORMAT:
            - [🌸 اردو تشریح]: Detailed explanation in pure Urdu.
            - [📖 English Summary]: Key points in English.
@@ -262,14 +265,14 @@ export default function App() {
         
         {/* Toggle Dark Mode */}
         <button onClick={() => setIsDarkMode(!dm)} 
-          className="pointer-events-auto absolute top-6 right-6 p-4 bg-white/10 dark:bg-black/40 backdrop-blur-2xl border border-white/20 rounded-2xl text-indigo-400 hover:scale-110 active:scale-95 transition-all shadow-2xl">
+          className="pointer-events-auto absolute top-6 right-6 p-4 glass-morphism rounded-2xl text-indigo-500 hover:scale-110 active:scale-95 transition-all shadow-2xl">
           {dm ? <Sun size={20} /> : <Moon size={20} />}
         </button>
 
         <AnimatePresence mode="wait">
           {screen === 1 && (
             <motion.div key="s1" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
-              className="flex-1 flex flex-col items-center justify-center p-6 text-center pointer-events-auto overflow-y-auto">
+              className="flex-1 flex flex-col items-center justify-center p-6 text-center pointer-events-auto overflow-y-auto pt-24 pb-12">
               <div className="mb-12">
                 <div className="w-24 h-24 mx-auto mb-8 glass-morphism rounded-[2.5rem] shadow-2xl flex items-center justify-center border-b-4 border-indigo-500">
                   <BookOpen size={48} className="text-indigo-500" />
@@ -277,9 +280,9 @@ export default function App() {
                 <h1 className={`text-5xl sm:text-7xl font-black mb-4 tracking-tighter ${dm ? 'text-indigo-50' : 'text-slate-900'}`}>
                   Esa AI <span className="text-indigo-500">Hub</span>
                 </h1>
-                <p className="text-slate-500 dark:text-indigo-200/50 font-bold tracking-[0.2em] uppercase text-xs">Your CIT Learning Assistant</p>
+                <p className="text-slate-500 dark:text-indigo-300 font-bold tracking-[0.2em] uppercase text-xs">Your CIT Learning Assistant</p>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 w-full max-w-6xl">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 w-full max-w-6xl"> {/* MISTAKE 2 FIX: Better Mobile Grid */}
                 {BOOKS.map((b) => (
                   <button key={b} onClick={() => { setBook(b); setChatHistory([]); setScreen(2); }}
                     className="p-8 glass-morphism rounded-[2.5rem] text-left border-indigo-500/10 hover:border-indigo-500/50 transition-all shadow-2xl group relative overflow-hidden">
@@ -333,7 +336,7 @@ export default function App() {
                   </div>
                   <div className="flex items-center gap-2 px-4 py-1.5 glass-morphism rounded-full">
                     <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"/>
-                    <span className="text-[10px] font-black dark:text-white dark:opacity-60">HUB V4.5</span>
+                    <span className="text-[10px] font-black dark:text-white dark:opacity-60">HUB V5.0</span>
                   </div>
                 </div>
               </div>
@@ -341,9 +344,9 @@ export default function App() {
               <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 sm:px-10 py-10 space-y-4 relative scroll-smooth bg-slate-50/5 dark:bg-transparent">
                 <div className="max-w-5xl mx-auto">
                   {chatHistory.length === 0 && (
-                    <div className="h-60 flex flex-col items-center justify-center opacity-20">
+                    <div className="h-60 flex flex-col items-center justify-center opacity-30">
                       <Sparkles size={64} className="mb-6 text-indigo-500" />
-                      <p className="text-xl font-bold tracking-widest text-center">ASK ANYTHING ABOUT<br/>{book.toUpperCase()}</p>
+                      <p className="text-xl font-bold tracking-widest text-center uppercase">Ask Anything About<br/>{book}</p>
                     </div>
                   )}
                   {chatHistory.map((m, i) => (
@@ -362,7 +365,7 @@ export default function App() {
                 )}
               </AnimatePresence>
 
-              <div className="flex-shrink-0 p-6 sm:p-10 z-50 bg-gradient-to-t from-white/95 dark:from-[#05070a]/95 via-white/80 dark:via-[#05070a]/80 to-transparent">
+              <div className="flex-shrink-0 p-6 sm:p-10 z-50 bg-gradient-to-t from-white/95 dark:from-[#0a1128]/95 via-white/80 dark:via-[#0a1128]/80 to-transparent">
                 <div className="max-w-5xl mx-auto">
                   
                   {attachedImage && (
@@ -389,8 +392,8 @@ export default function App() {
                     <input type="file" ref={fileInputRef} onChange={handleImageSelect} accept="image/*" className="hidden" />
                     <input value={question} onChange={e => setQuestion(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }}
-                      placeholder={`Message ${book} Assistant...`}
-                      className="flex-1 bg-transparent border-none focus:ring-0 text-slate-800 dark:text-white px-3 font-semibold text-[16px] outline-none placeholder:opacity-40" />
+                      placeholder={`Message ${book}...`}
+                      className="flex-1 bg-transparent border-none focus:ring-0 text-slate-800 dark:text-white px-3 font-semibold text-[16px] outline-none placeholder:opacity-30" />
                     <button onClick={handleSubmit} disabled={loading || (!question.trim() && !attachedImage)}
                       className="w-12 h-12 flex items-center justify-center bg-indigo-600 text-white rounded-[1.5rem] shadow-[0_10px_20px_rgba(79,70,229,0.3)] hover:bg-indigo-800 disabled:opacity-30 transition-all">
                       {loading ? <Loader2 size={20} className="animate-spin"/> : <Send size={20} className="ml-1"/>}
