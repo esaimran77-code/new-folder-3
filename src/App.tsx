@@ -127,6 +127,9 @@ function buildPrompt(
     '4. Roman Urdu section must include all 3 sections translated.',
     '5. No bullet points anywhere — plain flowing paragraphs.',
     '6. Do not add any text outside the format.',
+    '7. Write in very simple, easy Pakistani Urdu.',
+    '8. Avoid difficult Arabic or Persian words.',
+    '9. Use words that a normal Pakistani student understands.',
   ].join('\n');
 }
 
