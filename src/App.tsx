@@ -464,7 +464,7 @@ export default function App() {
                             )}
                             <div
                               className="whitespace-pre-line leading-relaxed text-[14px] sm:text-[15px]"
-                              style={hasUrdu ? { fontFamily: "'Noto Nastaliq Urdu', serif", lineHeight: '2.4' } : {}}
+                              style={hasUrdu ? { fontFamily: "'Noto Nastaliq Urdu', serif", lineHeight: '2.4', direction: 'rtl' } : {}}
                             >
                               {msg.content
                                 ? msg.content
