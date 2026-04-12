@@ -81,22 +81,20 @@ const FloatingShape = memo(function FloatingShape({
   return (
     <mesh position={position} ref={meshRef} scale={scale}>
       <icosahedronGeometry args={[1, 0]} />
-      {/* EXTREMELY LOW OPACITY FOR CLEAN LOOK */}
-      <meshStandardMaterial color={color} wireframe transparent opacity={0.08} />
+      <meshStandardMaterial color={color} wireframe transparent opacity={0.05} />
     </mesh>
   );
 });
 
 const Background3D = memo(function Background3D({ isDarkMode }: { isDarkMode: boolean }) {
   return (
-    <div className={'fixed inset-0 z-[-1] pointer-events-none transition-colors duration-1000 ' + (isDarkMode ? 'bg-[#05070a]' : 'bg-slate-50')}>
+    <div className={`fixed inset-0 z-[-1] pointer-events-none transition-colors duration-1000 ${isDarkMode ? 'bg-[#05070a]' : 'bg-slate-50'}`}>
       <Canvas camera={{ position: [0, 0, 15], fov: 50 }}>
-        <ambientLight intensity={isDarkMode ? 0.2 : 0.8} />
-        <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={isDarkMode ? 0.5 : 1} />
-        {/* PUSHED FURTHER BACK IN Z-AXIS (-10 to -20) */}
-        <FloatingShape position={[-6, 4, -10]} color={isDarkMode ? "#6366f1" : "#818cf8"} speed={0.1} scale={2} />
-        <FloatingShape position={[8, -3, -15]} color={isDarkMode ? "#a855f7" : "#c084fc"} speed={0.08} scale={3} />
-        <FloatingShape position={[0, -8, -12]} color={isDarkMode ? "#3b82f6" : "#60a5fa"} speed={0.05} scale={4} />
+        <ambientLight intensity={isDarkMode ? 0.1 : 0.8} />
+        <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={isDarkMode ? 0.3 : 1} />
+        <FloatingShape position={[-6, 4, -12]} color={isDarkMode ? "#6366f1" : "#818cf8"} speed={0.1} scale={2} />
+        <FloatingShape position={[8, -3, -18]} color={isDarkMode ? "#a855f7" : "#c084fc"} speed={0.08} scale={3} />
+        <FloatingShape position={[0, -8, -15]} color={isDarkMode ? "#3b82f6" : "#60a5fa"} speed={0.05} scale={4} />
       </Canvas>
     </div>
   );
@@ -111,16 +109,16 @@ const MessageBubble = ({ msg, isUser, loading, dm, onReply }: { msg: ChatMsg; is
       className={`flex flex-col max-w-[92%] sm:max-w-[80%] mb-4 ${isUser ? 'ml-auto items-end' : 'mr-auto items-start'}`}>
       
       <div className={`flex items-center gap-2 mb-1 px-1 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
-        <div className={`p-1.5 rounded-lg ${isUser ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-slate-800'} text-xs font-bold`}>
+        <div className={`p-1.5 rounded-lg ${isUser ? 'bg-indigo-600' : 'bg-white dark:bg-slate-800 shadow-sm'} text-xs font-bold`}>
           {isUser ? <User size={12} className="text-white"/> : <Sparkles size={12} className="text-indigo-500"/>}
         </div>
         <span className="text-[10px] uppercase font-black opacity-50 tracking-tighter">{isUser ? 'You' : 'Esa AI'}</span>
       </div>
 
-      <div className={`p-4 rounded-2xl shadow-sm text-[15px] leading-relaxed relative group transition-all
+      <div className={`p-4 rounded-2xl shadow-lg text-[15.5px] leading-relaxed relative group transition-all
         ${isUser 
           ? 'bg-indigo-600 text-white rounded-tr-none shadow-indigo-500/10' 
-          : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-tl-none shadow-slate-200/10'}`}>
+          : 'bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-tl-none shadow-slate-200/5'}`}>
         
         {msg.replyContext && (
           <div className="mb-3 p-2 bg-black/5 dark:bg-white/5 border-l-2 border-indigo-500 rounded-lg text-xs italic opacity-70">
@@ -137,12 +135,12 @@ const MessageBubble = ({ msg, isUser, loading, dm, onReply }: { msg: ChatMsg; is
         <div className="space-y-4">
           {sections.length > 1 ? (
             sections.map((part, i) => {
-              if (i % 2 === 1) return <div key={i} className="text-[10px] font-black uppercase text-indigo-500 mt-4 tracking-widest">{part}</div>;
+              if (i % 2 === 1) return <div key={i} className="text-[10px] font-black uppercase text-indigo-500 mt-4 tracking-widest leading-none border-b border-indigo-500/10 w-fit pb-1">{part}</div>;
               const isRtl = isUrdu(part);
-              return <div key={i} dir={isRtl ? 'rtl' : 'ltr'} className={`${isRtl ? 'urdu-text text-[19px] leading-[2]' : ''}`}>{part.trim()}</div>;
+              return <div key={i} dir={isRtl ? 'rtl' : 'ltr'} className={`${isRtl ? 'urdu-text text-[20px] leading-[2]' : 'font-medium'}`}>{part.trim()}</div>;
             })
           ) : (
-            <div dir={isUrdu(msg.content) ? 'rtl' : 'ltr'} className={isUrdu(msg.content) ? 'urdu-text text-[19px] leading-[2]' : ''}>
+            <div dir={isUrdu(msg.content) ? 'rtl' : 'ltr'} className={isUrdu(msg.content) ? 'urdu-text text-[20px] leading-[2]' : 'font-medium'}>
               {msg.content || (loading && !isUser ? <Loader2 className="animate-spin opacity-40" size={16}/> : '')}
             </div>
           )}
@@ -195,7 +193,7 @@ export default function App() {
   };
 
   const handleSubmit = async () => {
-    const userQuestion = question || (attachedImage ? 'Read this image' : '');
+    const userQuestion = question || (attachedImage ? 'Analyze this.' : '');
     if (!userQuestion.trim() && !attachedImage) return;
 
     const currentReplyContext = replyingTo !== null ? chatHistory[replyingTo].content : undefined;
@@ -209,7 +207,22 @@ export default function App() {
     try {
       const ai = new Groq({ apiKey: import.meta.env.VITE_GROQ_API_KEY, dangerouslyAllowBrowser: true });
       const historyText = chatHistory.map(h => h.role + ': ' + h.content).join('\n');
-      const prompt = `Student for ${book}. Answer as "Esa AI" (friendly teacher) in Urdu script. Format: [🌸 اردو تشریح], [📖 English], [🔤 Roman Urdu]. Help on: ${userQuestion}\nHistory:\n${historyText}\nReplying to: ${currentReplyContext || 'None'}`;
+      
+      const prompt = `
+        Context: The student is asking about the subject "${book}".
+        Role: You are "Esa AI", a friendly and respectful Pakistani teacher.
+        
+        STRICT RULES:
+        1. MANDATORY: Start EVERY response with exactly "السلام علیکم" (Assalam-o-Alaikum).
+        2. SUBJECT ISOLATION: Focus strictly on "${book}". If the question is irrelevant to ${book}, politely explain as a teacher and then answer, but keep context to ${book}.
+        3. FORMAT:
+           - [🌸 اردو تشریح]: Detailed explanation in pure Urdu.
+           - [📖 English Summary]: Key points in English.
+           - [🔤 Roman Urdu]: Translation in Roman Urdu.
+        
+        Question: ${userQuestion}
+        History: ${historyText}
+      `;
 
       const response = await ai.chat.completions.create({
         model: imgData ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'llama-3.3-70b-versatile',
@@ -232,7 +245,7 @@ export default function App() {
         }
       }
     } catch (e) {
-      setChatHistory(p => [...p.slice(0, -1), { role: 'model', content: '❌ Oops: ' + (e as any).message }]);
+      setChatHistory(p => [...p.slice(0, -1), { role: 'model', content: '❌ Error: ' + (e as any).message }]);
     } finally {
       setLoading(false);
       scrollToBottom('smooth');
@@ -249,7 +262,7 @@ export default function App() {
         
         {/* Toggle Dark Mode */}
         <button onClick={() => setIsDarkMode(!dm)} 
-          className="pointer-events-auto absolute top-6 right-6 p-3 bg-white/20 dark:bg-black/20 backdrop-blur-xl border border-white/10 rounded-2xl text-indigo-400 hover:scale-110 active:scale-95 transition-all">
+          className="pointer-events-auto absolute top-6 right-6 p-4 bg-white/10 dark:bg-black/40 backdrop-blur-2xl border border-white/20 rounded-2xl text-indigo-400 hover:scale-110 active:scale-95 transition-all shadow-2xl">
           {dm ? <Sun size={20} /> : <Moon size={20} />}
         </button>
 
@@ -258,20 +271,21 @@ export default function App() {
             <motion.div key="s1" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
               className="flex-1 flex flex-col items-center justify-center p-6 text-center pointer-events-auto overflow-y-auto">
               <div className="mb-12">
-                <div className="w-24 h-24 mx-auto mb-8 bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl flex items-center justify-center border-b-4 border-indigo-500">
+                <div className="w-24 h-24 mx-auto mb-8 glass-morphism rounded-[2.5rem] shadow-2xl flex items-center justify-center border-b-4 border-indigo-500">
                   <BookOpen size={48} className="text-indigo-500" />
                 </div>
-                <h1 className="text-5xl sm:text-7xl font-black mb-4 tracking-tighter text-slate-900 dark:text-white">
+                <h1 className={`text-5xl sm:text-7xl font-black mb-4 tracking-tighter ${dm ? 'text-indigo-50' : 'text-slate-900'}`}>
                   Esa AI <span className="text-indigo-500">Hub</span>
                 </h1>
-                <p className="text-slate-500 dark:text-slate-400 font-medium tracking-wide">Select your subject and start learning.</p>
+                <p className="text-slate-500 dark:text-indigo-200/50 font-bold tracking-[0.2em] uppercase text-xs">Your CIT Learning Assistant</p>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full max-w-6xl">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 w-full max-w-6xl">
                 {BOOKS.map((b) => (
-                  <button key={b} onClick={() => { setBook(b); setScreen(2); }}
-                    className="p-8 bg-white dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200 dark:border-slate-800 rounded-[2.5rem] text-left hover:border-indigo-500 transition-all shadow-xl group">
-                    <Folder size={18} className="mb-4 text-indigo-500 opacity-40 group-hover:opacity-100 transition-all" />
-                    <span className="text-lg font-bold text-slate-800 dark:text-white block">{b}</span>
+                  <button key={b} onClick={() => { setBook(b); setChatHistory([]); setScreen(2); }}
+                    className="p-8 glass-morphism rounded-[2.5rem] text-left border-indigo-500/10 hover:border-indigo-500/50 transition-all shadow-2xl group relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-20 transition-opacity"><Folder size={64}/></div>
+                    <Folder size={20} className="mb-4 text-indigo-500" />
+                    <span className={`text-xl font-bold block ${dm ? 'text-white' : 'text-slate-800'}`}>{b}</span>
                   </button>
                 ))}
               </div>
@@ -282,22 +296,22 @@ export default function App() {
             <motion.div key="s2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
               className="flex-1 flex flex-col items-center justify-center p-6 pointer-events-auto">
               <div className="max-w-4xl w-full text-center">
-                <button onClick={() => setScreen(1)} className="mb-12 text-indigo-500 font-black tracking-widest text-xs flex items-center justify-center gap-2 hover:opacity-70">
-                  <ChevronLeft size={16} /> CHANGE SUBJECT
+                <button onClick={() => setScreen(1)} className="mb-12 text-indigo-500 font-black tracking-widest text-[10px] flex items-center justify-center gap-2 hover:opacity-70 glass-morphism px-4 py-2 rounded-full w-fit mx-auto">
+                  <ChevronLeft size={14} /> BACK TO HUB
                 </button>
-                <h2 className="text-5xl font-black mb-16 text-slate-900 dark:text-white">{book}</h2>
+                <h2 className={`text-4xl font-black mb-16 ${dm ? 'text-white' : 'text-slate-900'}`}>{book}</h2>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {[
-                    { id: 'short', title: 'Summary', icon: AlignLeft },
-                    { id: 'long', title: 'Detailed', icon: AlignJustify },
-                    { id: 'in-depth', title: 'Mastery', icon: BookText },
+                    { id: 'short', title: 'Quick Summary', icon: AlignLeft },
+                    { id: 'long', title: 'Detailed Study', icon: AlignJustify },
+                    { id: 'in-depth', title: 'Expert Mastery', icon: BookText },
                   ].map((o) => (
-                    <button key={o.id} onClick={() => { setAnswerLength(o.id); setScreen(3); }}
-                      className="p-10 bg-white dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200 dark:border-slate-800 rounded-[3rem] shadow-2xl flex flex-col items-center hover:border-indigo-500 transition-all">
-                      <div className="p-5 bg-indigo-500 text-white rounded-3xl mb-6 shadow-indigo-500/20 shadow-lg">
-                        <o.icon size={32} />
+                    <button key={o.id} onClick={() => { setAnswerLength(o.id); setChatHistory([]); setScreen(3); }}
+                      className="p-10 glass-morphism rounded-[3rem] shadow-2xl flex flex-col items-center hover:border-indigo-500/50 transition-all">
+                      <div className="p-6 bg-indigo-500 text-white rounded-[1.8rem] mb-6 shadow-indigo-500/20 shadow-lg">
+                        <o.icon size={36} />
                       </div>
-                      <span className="text-xl font-black dark:text-white">{o.title}</span>
+                      <span className={`text-2xl font-black ${dm ? 'text-white' : 'text-slate-800'}`}>{o.title}</span>
                     </button>
                   ))}
                 </div>
@@ -308,30 +322,28 @@ export default function App() {
           {screen === 3 && (
             <motion.div key="s3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 flex flex-col relative pointer-events-auto overflow-hidden">
               
-              {/* STICKY HEADER */}
-              <div className="flex-shrink-0 p-4 sm:p-6 bg-white/80 dark:bg-slate-950/80 backdrop-blur-2xl border-b border-slate-200 dark:border-slate-800 z-50">
+              <div className="flex-shrink-0 p-4 sm:p-6 bg-white/5 dark:bg-black/20 backdrop-blur-2xl border-b border-indigo-500/10 z-50">
                 <div className="max-w-5xl mx-auto flex items-center justify-between">
                   <div className="flex items-center gap-4">
-                    <button onClick={() => setScreen(2)} className="w-10 h-10 aspect-square flex items-center justify-center bg-slate-100 dark:bg-slate-900 rounded-xl text-indigo-500 hover:bg-indigo-500 hover:text-white transition-all"><ChevronLeft size={20}/></button>
+                    <button onClick={() => setScreen(2)} className="w-11 h-11 flex items-center justify-center glass-morphism rounded-2xl text-indigo-500 hover:bg-indigo-500 hover:text-white transition-all"><ChevronLeft size={24}/></button>
                     <div>
-                      <h2 className="font-black text-slate-900 dark:text-white leading-none">{book}</h2>
-                      <p className="text-[10px] font-black uppercase text-indigo-500 mt-1 tracking-widest">{answerLength} Session</p>
+                      <h2 className={`font-black text-lg sm:text-2xl leading-none ${dm ? 'text-white' : 'text-slate-900'}`}>{book}</h2>
+                      <p className="text-[10px] font-black uppercase text-indigo-500 mt-1 tracking-widest">{answerLength.replace('-',' ')} Active</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 px-3 py-1 bg-indigo-500/10 rounded-full border border-indigo-500/20">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"/>
-                    <span className="text-[10px] font-black dark:text-white opacity-60">ACTIVE</span>
+                  <div className="flex items-center gap-2 px-4 py-1.5 glass-morphism rounded-full">
+                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"/>
+                    <span className="text-[10px] font-black dark:text-white dark:opacity-60">HUB V4.5</span>
                   </div>
                 </div>
               </div>
 
-              {/* CHAT SCROLL AREA */}
-              <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 sm:px-6 py-8 space-y-2 relative scroll-smooth bg-slate-50/10 dark:bg-transparent">
+              <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 sm:px-10 py-10 space-y-4 relative scroll-smooth bg-slate-50/5 dark:bg-transparent">
                 <div className="max-w-5xl mx-auto">
                   {chatHistory.length === 0 && (
-                    <div className="h-40 flex flex-col items-center justify-center opacity-40 grayscale">
-                      <Sparkles size={40} className="mb-4 text-indigo-500" />
-                      <p className="text-sm font-bold">START A CONVERSATION</p>
+                    <div className="h-60 flex flex-col items-center justify-center opacity-20">
+                      <Sparkles size={64} className="mb-6 text-indigo-500" />
+                      <p className="text-xl font-bold tracking-widest text-center">ASK ANYTHING ABOUT<br/>{book.toUpperCase()}</p>
                     </div>
                   )}
                   {chatHistory.map((m, i) => (
@@ -340,50 +352,48 @@ export default function App() {
                 </div>
               </div>
 
-              {/* SCROLL TO BOTTOM BUTTON */}
               <AnimatePresence>
                 {showScrollBtn && (
                   <motion.button initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }}
                     onClick={() => scrollToBottom('smooth')}
-                    className="absolute bottom-32 right-8 z-50 w-12 h-12 flex items-center justify-center bg-indigo-600 text-white rounded-full shadow-2xl hover:bg-indigo-700 active:scale-90 transition-all">
-                    <ArrowDown size={24} />
+                    className="absolute bottom-32 right-10 z-[60] w-14 h-14 flex items-center justify-center bg-indigo-600 text-white rounded-full shadow-[0_15px_35px_rgba(79,70,229,0.4)] hover:bg-indigo-700 active:scale-95 transition-all">
+                    <ArrowDown size={28} />
                   </motion.button>
                 )}
               </AnimatePresence>
 
-              {/* FLOATING SLIM INPUT BAR */}
-              <div className="flex-shrink-0 p-6 z-50 bg-gradient-to-t from-white dark:from-slate-950 via-white/80 dark:via-slate-950/80 to-transparent">
+              <div className="flex-shrink-0 p-6 sm:p-10 z-50 bg-gradient-to-t from-white/95 dark:from-[#05070a]/95 via-white/80 dark:via-[#05070a]/80 to-transparent">
                 <div className="max-w-5xl mx-auto">
                   
                   {attachedImage && (
-                    <div className="mb-3 px-4 py-2 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl w-fit flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg overflow-hidden relative">
+                    <div className="mb-4 glass-morphism p-2 rounded-3xl w-fit flex items-center gap-3 border-indigo-500/20">
+                      <div className="w-12 h-12 rounded-2xl overflow-hidden relative shadow-lg">
                         <img src={attachedImage.preview} className="w-full h-full object-cover" />
-                        <button onClick={() => setAttachedImage(null)} className="absolute top-0 right-0 p-0.5 bg-black/60 rounded-full text-white"><X size={10}/></button>
+                        <button onClick={() => setAttachedImage(null)} className="absolute top-0 right-0 p-1 bg-black/60 rounded-full text-white"><X size={10}/></button>
                       </div>
-                      <span className="text-[10px] font-black text-indigo-500">IMAGE READY</span>
+                      <span className="text-[10px] font-black text-indigo-500 uppercase pr-2">IMAGE STAGED</span>
                     </div>
                   )}
 
                   {replyingTo !== null && (
-                    <div className="mb-2 px-4 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-between">
-                      <p className="text-[10px] font-bold truncate opacity-60 italic">Replying: {chatHistory[replyingTo].content}</p>
-                      <button onClick={() => setReplyingTo(null)} className="text-indigo-500 transition-all"><X size={14}/></button>
+                    <div className="mb-3 glass-morphism p-3 rounded-2xl border-l-[6px] border-indigo-500 flex items-center justify-between shadow-xl">
+                      <p className="text-[11px] font-bold truncate opacity-80 italic">Replying: {chatHistory[replyingTo].content}</p>
+                      <button onClick={() => setReplyingTo(null)} className="p-1 hover:bg-white/10 rounded-lg text-indigo-500"><X size={16}/></button>
                     </div>
                   )}
 
-                  <div className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-2 shadow-2xl focus-within:border-indigo-500 transition-all">
-                    <button onClick={() => fileInputRef.current?.click()} className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-indigo-500 transition-all">
-                      <ImagePlus size={20} />
+                  <div className="flex items-center gap-3 glass-morphism border-indigo-500/20 rounded-[2.5rem] p-2.5 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] focus-within:border-indigo-500/50 transition-all">
+                    <button onClick={() => fileInputRef.current?.click()} className="w-12 h-12 flex items-center justify-center text-slate-400 hover:text-indigo-500 transition-all hover:bg-indigo-500/10 rounded-[1.5rem]">
+                      <ImagePlus size={22} />
                     </button>
                     <input type="file" ref={fileInputRef} onChange={handleImageSelect} accept="image/*" className="hidden" />
                     <input value={question} onChange={e => setQuestion(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }}
-                      placeholder="Ask anything..."
-                      className="flex-1 bg-transparent border-none focus:ring-0 text-slate-800 dark:text-white px-2 py-0 h-10 outline-none placeholder:opacity-50" />
+                      placeholder={`Message ${book} Assistant...`}
+                      className="flex-1 bg-transparent border-none focus:ring-0 text-slate-800 dark:text-white px-3 font-semibold text-[16px] outline-none placeholder:opacity-40" />
                     <button onClick={handleSubmit} disabled={loading || (!question.trim() && !attachedImage)}
-                      className="w-10 h-10 flex items-center justify-center bg-indigo-600 text-white rounded-2xl shadow-lg hover:bg-indigo-700 disabled:opacity-20 transition-all">
-                      {loading ? <Loader2 size={16} className="animate-spin"/> : <Send size={18} />}
+                      className="w-12 h-12 flex items-center justify-center bg-indigo-600 text-white rounded-[1.5rem] shadow-[0_10px_20px_rgba(79,70,229,0.3)] hover:bg-indigo-800 disabled:opacity-30 transition-all">
+                      {loading ? <Loader2 size={20} className="animate-spin"/> : <Send size={20} className="ml-1"/>}
                     </button>
                   </div>
                 </div>
