@@ -2,8 +2,7 @@ import { useState, useRef, useEffect, memo } from 'react';
 import Groq from 'groq-sdk';
 import {
   BookOpen, MessageSquareText, Loader2, ChevronLeft,
-  Folder, AlignLeft, AlignJustify, BookText,
-  Send, Sparkles, User, Moon, Sun, ChevronDown, ImagePlus, X
+  Folder, Send, Sparkles, User, Moon, Sun, ChevronDown, ImagePlus, X
 } from 'lucide-react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -35,6 +34,8 @@ const HEADINGS = [
   "Let's dive into some knowledge!",
 ];
 
+const MATH_BOOKS = ['Applied Mathematics-II'];
+
 async function resizeImage(file: File): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -60,7 +61,6 @@ async function resizeImage(file: File): Promise<string> {
 
 function buildPrompt(
   book: string,
-  answerLength: string,
   question: string,
   history: { role: string; content: string }[],
   replyCtx?: string,
@@ -68,51 +68,385 @@ function buildPrompt(
 ): string {
   const hist = history.map(h => h.role + ': ' + h.content).join('\n');
   const replyNote = replyCtx ? 'User is replying to: "' + replyCtx + '"' : '';
-  const imgNote = hasImage ? 'Student shared an image. Read everything in the image carefully and solve/explain it completely.' : '';
+  const imgNote = hasImage
+    ? 'Student shared an image. Read everything in the image carefully and solve/explain it completely.'
+    : '';
 
-  let urduLines = '5';
-  let engLines = '3';
-  let exLines = '2';
+  const isMath = MATH_BOOKS.includes(book);
 
-  if (answerLength === 'long') {
-    urduLines = '10'; engLines = '5'; exLines = '3';
-  } else if (answerLength === 'in-depth') {
-    urduLines = '19'; engLines = '10'; exLines = '6';
+  if (isMath) {
+    return [
+      'You are Esa AI — an expert Mathematics teacher.',
+      'CRITICAL RULES FOR MATH:',
+      '1. Write ALL answers in English only.',
+      '2. Format all math expressions properly like a notebook:',
+      '   - Fractions: write numerator on top, denominator below with a line. Example: show 8/3 as a proper fraction.',
+      '   - Use proper math notation: ×, ÷, √, ², ³, π, etc.',
+      '   - Show step-by-step solution clearly.',
+      '   - Each step on a new line.',
+      '   - Use = signs aligned properly.',
+      '3. After solving, give a brief English explanation of the method used.',
+      '4. Do NOT write in Urdu or Roman Urdu for math problems.',
+      '5. Make it look like a proper notebook solution.',
+      '',
+      'Conversation history:',
+      hist,
+      '',
+      replyNote,
+      imgNote,
+      '',
+      'Student question: ' + question,
+    ].join('\n');
   }
 
-  const format = [
-    'Line 1: اَلسَّلَامُ عَلَیْکُمْ',
+  return [
+    'You are Esa AI — an expert, accurate Pakistani teacher for: ' + book,
+    'IMPORTANT: Always give CORRECT, ACCURATE, FACTUAL answers.',
+    'Use simple Pakistani Urdu vocabulary (NOT Indian Urdu).',
+    '',
+    'FORMAT YOUR ANSWER EXACTLY LIKE THIS:',
+    '',
+    'اَلسَّلَامُ عَلَیْکُمْ',
     '',
     '\uD83C\uDF38 اردو وضاحت',
-    'Write exactly ' + urduLines + ' lines.',
-    'IMPORTANT: Write a SIMPLE, CLEAR EXPLANATION of what this topic IS — like a teacher explaining to a student.',
-    'Do NOT list features, advantages, or benefits.',
-    'Just explain the meaning and concept in easy everyday Pakistani Urdu words.',
-    'Use pure Urdu script only — absolutely NO English words, NO Roman Urdu in this section.',
+    'Write 6-8 lines explaining the topic clearly in simple everyday Pakistani Urdu.',
+    'Explain what it IS — do not list features or advantages.',
+    'Use pure Urdu script only — NO English, NO Roman Urdu here.',
     '',
-    '\uD83D\uDCD6 English Definition',
-    'Write exactly ' + engLines + ' lines.',
-    'Give a simple, clear definition and explanation in easy English.',
-    'Do NOT list features or advantages — just explain what it is and how it works.',
+    '\uD83D\uDCD6 English Explanation',
+    'Write 5-7 lines in clear, simple English.',
+    'Explain the concept properly — what it is and how it works.',
+    'Give a real-life example at the end.',
     '',
-    '\uD83D\uDCA1 Example',
-    'Write exactly ' + exLines + ' lines with a clear, real-life practical example.',
-    '',
-    '\uD83D\uDD24 Roman Urdu',
-    'Translate the Urdu Explanation + English Definition + Example into Roman Urdu (Pakistani style).',
-  ].join('\n');
-
-  return [
-    'You are Esa AI — an expert Pakistani teacher for: ' + book,
-    'You always give CORRECT, ACCURATE, FACTUAL answers.',
-    'Use simple Pakistani Urdu style (NOT Indian Urdu).',
-    'NEVER list advantages or features unless specifically asked.',
-    'ALWAYS explain concepts simply and clearly.',
+    'STRICT RULES:',
+    '1. No Roman Urdu anywhere.',
+    '2. Urdu section = pure Urdu script only.',
+    '3. No bullet points — flowing paragraphs only.',
+    '4. No extra sections outside this format.',
+    '5. Do not list advantages/disadvantages unless specifically asked.',
     '',
     'Conversation history:',
     hist,
     '',
     replyNote,
+    imgNote,
+    '',
+    'Student question: ' + question,
+  ].join('\n');
+}
+
+type ChatMsg = { role: 'user' | 'model'; content: string; replyCtx?: string; imgUrl?: string };
+
+const FloatingShape = memo(function FloatingShape({
+  position, color, speed, scale = 1,
+}: { position: [number, number, number]; color: string; speed: number; scale?: number }) {
+  const ref = useRef<THREE.Mesh>(null);
+  useFrame((s) => {
+    if (ref.current) {
+      ref.current.rotation.x = s.clock.elapsedTime * speed;
+      ref.current.rotation.y = s.clock.elapsedTime * speed * 0.8;
+      ref.current.position.y = position[1] + Math.sin(s.clock.elapsedTime * speed) * 0.5;
+    }
+  });
+  return (
+    <mesh position={position} ref={ref} scale={scale}>
+      <icosahedronGeometry args={[1, 0]} />
+      <meshStandardMaterial color={color} wireframe transparent opacity={0.6} />
+    </mesh>
+  );
+});
+
+const Background3D = memo(function Background3D({ dark }: { dark: boolean }) {
+  return (
+    <div className={'fixed inset-0 z-0 pointer-events-none ' + (dark ? 'bg-slate-900' : 'bg-slate-100')}>
+      <Canvas camera={{ position: [0, 0, 10], fov: 50 }}>
+        <ambientLight intensity={dark ? 0.5 : 0.8} />
+        <directionalLight position={[10, 10, 5]} intensity={dark ? 1 : 1.5} />
+        <FloatingShape position={[-4, 2, -2]} color={dark ? '#818cf8' : '#6366f1'} speed={0.2} scale={1.5} />
+        <FloatingShape position={[5, -2, -5]} color={dark ? '#c084fc' : '#a855f7'} speed={0.15} scale={2} />
+        <FloatingShape position={[0, 0, -8]} color={dark ? '#60a5fa' : '#3b82f6'} speed={0.1} scale={3} />
+        <FloatingShape position={[-5, -4, -4]} color={dark ? '#f472b6' : '#ec4899'} speed={0.25} scale={1.2} />
+        <FloatingShape position={[6, 4, -3]} color={dark ? '#2dd4bf' : '#14b8a6'} speed={0.18} scale={1.8} />
+      </Canvas>
+    </div>
+  );
+});
+
+export default function App() {
+  const [dark, setDark] = useState(true);
+  const [screen, setScreen] = useState<1 | 2>(1);
+  const [book, setBook] = useState('');
+  const [question, setQuestion] = useState('');
+  const [chat, setChat] = useState<ChatMsg[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<number | null>(null);
+  const [heading, setHeading] = useState('');
+  const [showScroll, setShowScroll] = useState(false);
+  const [selImg, setSelImg] = useState<string | null>(null);
+  const [imgLoading, setImgLoading] = useState(false);
+
+  const chatRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setHeading(HEADINGS[Math.floor(Math.random() * HEADINGS.length)]);
+  }, [screen]);
+
+  const scrollBottom = () => {
+    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
+  };
+
+  const onScroll = () => {
+    if (!chatRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = chatRef.current;
+    setShowScroll(chat.length > 0 && scrollHeight - scrollTop - clientHeight > 120);
+  };
+
+  const onImagePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImgLoading(true);
+    try { setSelImg(await resizeImage(file)); }
+    finally { setImgLoading(false); if (fileRef.current) fileRef.current.value = ''; }
+  };
+
+  const submit = async (txt?: string) => {
+    const q = txt || question;
+    if (!q.trim() && !selImg) return;
+    const finalQ = q || 'Please solve this image.';
+    const replyCtx = replyingTo !== null ? chat[replyingTo].content : undefined;
+    const img = selImg;
+
+    setQuestion('');
+    setSelImg(null);
+    setReplyingTo(null);
+    setLoading(true);
+
+    const userMsg: ChatMsg = { role: 'user', content: finalQ, replyCtx, imgUrl: img || undefined };
+    const aiMsg: ChatMsg = { role: 'model', content: '' };
+    const histForPrompt = [...chat, userMsg];
+
+    setChat(prev => [...prev, userMsg, aiMsg]);
+    setTimeout(scrollBottom, 100);
+
+    try {
+      const ai = new Groq({ apiKey: import.meta.env.VITE_GROQ_API_KEY, dangerouslyAllowBrowser: true });
+      const prompt = buildPrompt(book, finalQ, histForPrompt, replyCtx, !!img);
+
+      let res;
+      if (img) {
+        const b64 = img.split(',')[1];
+        const mime = img.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
+        res = await ai.chat.completions.create({
+          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image_url', image_url: { url: 'data:' + mime + ';base64,' + b64 } },
+              { type: 'text', text: prompt },
+            ],
+          }],
+          stream: true, max_tokens: 2048,
+        });
+      } else {
+        res = await ai.chat.completions.create({
+          model: 'llama-3.3-70b-versatile',
+          messages: [{ role: 'user', content: prompt }],
+          stream: true, max_tokens: 2048, temperature: 0.3,
+        });
+      }
+
+      let full = '';
+      for await (const chunk of res) {
+        const part = chunk.choices[0]?.delta?.content || '';
+        if (part) {
+          full += part;
+          setChat(prev => {
+            const u = [...prev];
+            u[u.length - 1] = { ...u[u.length - 1], content: full };
+            return u;
+          });
+        }
+      }
+      setTimeout(scrollBottom, 50);
+    } catch (err: unknown) {
+      const raw = err instanceof Error ? err.message : JSON.stringify(err);
+      let msg = 'Unknown error.';
+      if (raw.includes('503') || raw.includes('high demand')) msg = 'AI is busy. Please try again.';
+      else if (raw.includes('403')) msg = 'API Key error.';
+      else msg = raw.substring(0, 200);
+      setChat(prev => { const u = [...prev]; u[u.length - 1] = { ...u[u.length - 1], content: '\u26A0\uFE0F ' + msg }; return u; });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const pv = {
+    initial: { opacity: 0, y: 20 },
+    animate: { opacity: 1, y: 0, transition: { duration: 0.4 } },
+    exit: { opacity: 0, y: -20, transition: { duration: 0.3 } },
+  };
+
+  const card = dark ? 'bg-white/10 border-white/20' : 'bg-white/80 border-slate-200';
+  const txt = dark ? 'text-white' : 'text-slate-800';
+  const sub = dark ? 'text-slate-300' : 'text-slate-600';
+  const inp = dark
+    ? 'bg-slate-800 border-slate-600 text-white placeholder-slate-400 focus:border-indigo-500 focus:ring-indigo-500/20'
+    : 'bg-white border-slate-300 text-slate-800 placeholder-slate-400 focus:border-indigo-400 focus:ring-indigo-100';
+
+  const isMathBook = MATH_BOOKS.includes(book);
+
+  return (
+    <div>
+      <Background3D dark={dark} />
+
+      <button
+        onClick={() => setDark(!dark)}
+        className={'fixed top-5 right-5 z-50 p-3 rounded-full backdrop-blur-md shadow-lg transition-all ' +
+          (dark ? 'bg-white/10 text-yellow-300 hover:bg-white/20' : 'bg-slate-800/10 text-slate-700 hover:bg-slate-800/20')}
+      >
+        {dark ? <Sun size={22} /> : <Moon size={22} />}
+      </button>
+
+      <div className="relative z-10" style={{ minHeight: '100dvh' }}>
+        <AnimatePresence mode="wait">
+
+          {/* ═══ SCREEN 1 — BOOKS ═══ */}
+          {screen === 1 && (
+            <motion.div key="s1" variants={pv} initial="initial" animate="animate" exit="exit"
+              className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8">
+              <div className="text-center mb-10">
+                <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                  transition={{ delay: 0.2, type: 'spring' }}
+                  className={'inline-block p-4 rounded-full backdrop-blur-md mb-5 border ' + card}>
+                  <BookOpen size={44} className="text-indigo-400" />
+                </motion.div>
+                <h1 className={'text-4xl sm:text-5xl font-extrabold tracking-tight mb-3 ' + txt}>
+                  {"Esa's CIT "}
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">
+                    Learning Hub
+                  </span>
+                </h1>
+                <p className={'text-base sm:text-lg max-w-xl mx-auto ' + sub}>
+                  Select a subject to begin your learning journey
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-5 w-full max-w-5xl">
+                {BOOKS.map((b, i) => (
+                  <motion.button key={b}
+                    initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.05 }}
+                    whileHover={{ scale: 1.03, y: -3 }} whileTap={{ scale: 0.97 }}
+                    onClick={() => { setBook(b); setChat([]); setScreen(2); }}
+                    className={'flex items-center gap-3 p-5 rounded-2xl shadow-lg border backdrop-blur-md text-left group transition-colors ' + card}
+                  >
+                    <div className="p-2.5 bg-indigo-100 text-indigo-600 rounded-xl group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                      <Folder size={22} />
+                    </div>
+                    <span className={'font-semibold text-base leading-snug ' + txt}>{b}</span>
+                  </motion.button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {/* ═══ SCREEN 2 — CHAT ═══ */}
+          {screen === 2 && (
+            <motion.div key="s2" variants={pv} initial="initial" animate="animate" exit="exit"
+              className="flex flex-col" style={{ height: '100dvh' }}>
+
+              {/* Header */}
+              <div className="flex-shrink-0 px-3 pt-3 pb-2 sm:px-5 sm:pt-4 max-w-4xl w-full mx-auto">
+                <div className={'rounded-2xl border backdrop-blur-md px-4 py-3 shadow-lg ' + card}>
+                  <button onClick={() => setScreen(1)}
+                    className={'flex items-center gap-1 mb-1 text-xs font-medium transition-colors ' +
+                      (dark ? 'text-indigo-300 hover:text-white' : 'text-indigo-600 hover:text-indigo-900')}>
+                    <ChevronLeft size={14} /> Back to Subjects
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="text-yellow-300 flex-shrink-0" size={20} />
+                    <h2 className={'text-base sm:text-lg font-bold truncate ' + txt}>{heading}</h2>
+                  </div>
+                  <p className={'text-xs mt-0.5 flex items-center gap-1.5 ' + (dark ? 'text-indigo-300' : 'text-indigo-600')}>
+                    <Folder size={12} /> {book}
+                    {isMathBook && <span className="ml-1 bg-indigo-500 text-white px-2 py-0.5 rounded-full text-[10px] font-bold">MATH MODE</span>}
+                  </p>
+                </div>
+              </div>
+
+              {/* Chat area */}
+              <div className="flex-1 min-h-0 px-3 sm:px-5 max-w-4xl w-full mx-auto relative">
+                <div className={'h-full rounded-2xl border backdrop-blur-xl shadow-xl overflow-hidden ' +
+                  (dark ? 'bg-slate-900/60 border-white/15' : 'bg-white/85 border-slate-200')}>
+                  <div
+                    ref={chatRef}
+                    onScroll={onScroll}
+                    className="h-full overflow-y-auto p-3 sm:p-5 space-y-4"
+                    style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+                  >
+                    {chat.length === 0 && (
+                      <div className="h-full flex flex-col items-center justify-center text-center py-10 opacity-60">
+                        <MessageSquareText size={52} className="text-indigo-400 mb-3" />
+                        <p className={'text-base font-medium max-w-xs ' + sub}>
+                          {"I'm Esa AI. Ask me anything about "}{book}{"!"}
+                        </p>
+                        <p className={'text-xs mt-1 ' + sub}>
+                          {isMathBook ? '📐 Math mode — send equations or images!' : 'You can also send an image 📷'}
+                        </p>
+                      </div>
+                    )}
+
+                    {chat.map((msg, idx) => {
+                      const isUser = msg.role === 'user';
+                      const bubbleCls = isUser
+                        ? 'bg-gradient-to-br from-indigo-500 to-indigo-600 text-white rounded-tr-sm'
+                        : dark
+                          ? 'bg-slate-800 border border-slate-700 text-slate-100 rounded-tl-sm'
+                          : 'bg-white border border-slate-200 text-slate-800 rounded-tl-sm';
+                      const hasUrduText = !isUser && !isMathBook &&
+                        (msg.content.includes('\u0648\u0639\u0644\u06CC\u06A9\u0645') ||
+                          msg.content.includes('\u0627\u0631\u062F\u0648') ||
+                          msg.content.includes('\u0627\u0644\u0633\u0644\u0627\u0645'));
+
+                      return (
+                        <motion.div key={idx}
+                          initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          className={'flex flex-col max-w-[90%] sm:max-w-[82%] ' + (isUser ? 'ml-auto items-end' : 'mr-auto items-start')}
+                        >
+                          <div className={'flex items-center gap-1.5 mb-1 px-1 ' + (isUser ? 'flex-row-reverse' : 'flex-row')}>
+                            <div className={'p-1 rounded-full ' + (isUser ? 'bg-indigo-100 text-indigo-600' : 'bg-purple-100 text-purple-600')}>
+                              {isUser ? <User size={12} /> : <Sparkles size={12} />}
+                            </div>
+                            <span className={'text-xs font-semibold ' + (dark ? 'text-slate-400' : 'text-slate-500')}>
+                              {isUser ? 'You' : 'Esa AI'}
+                            </span>
+                          </div>
+
+                          <div className={'p-3 sm:p-4 rounded-3xl shadow-md break-words max-w-full ' + bubbleCls}>
+                            {msg.replyCtx && (
+                              <div className={'mb-2 p-2 rounded-lg text-xs italic border-l-4 ' +
+                                (isUser ? 'bg-white/20 border-white/40 text-indigo-100' : dark ? 'bg-slate-700 border-indigo-400 text-slate-300' : 'bg-slate-50 border-indigo-300 text-slate-500')}>
+                                <span className="font-semibold not-italic block mb-0.5 uppercase text-[10px] opacity-60">Replying to:</span>
+                                <div className="line-clamp-2">{msg.replyCtx}</div>
+                              </div>
+                            )}
+                            {msg.imgUrl && (
+                              <img src={msg.imgUrl} alt="uploaded"
+                                className="rounded-xl mb-2 max-h-44 object-contain border border-white/20" />
+                            )}
+                            <div
+                              className="whitespace-pre-line leading-relaxed text-[14px] sm:text-[15px]"
+                              style={hasUrduText
+                                ? { fontFamily: "'Noto Nastaliq Urdu', serif", lineHeight: '2.4', direction: 'rtl' }
+                                : isMathBook
+                                  ? { fontFamily: "'Courier New', monospace", lineHeight: '1.8' }
+                                  : {}}
+                            >
+                              {msg.content
+                                ? msg.content
+                                replyNote,
     imgNote,
     '',
     'Student question: ' + question,
